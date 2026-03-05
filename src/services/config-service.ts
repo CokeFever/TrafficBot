@@ -1,0 +1,149 @@
+import { BackendConfig, ConfigSummary, UserConfig } from '../models/types';
+import { DataStore } from './data-store';
+import * as crypto from 'crypto';
+
+export interface ConfigService {
+  isConfigured(userId: string): Promise<boolean>;
+  saveTdxApiKey(userId: string, apiKey: string): Promise<void>;
+  getTdxApiKey(userId: string): Promise<string | null>;
+  validateApiKey(apiKey: string): Promise<boolean>;
+  saveBackendConfig(userId: string, config: BackendConfig): Promise<void>;
+  getConfigSummary(userId: string): Promise<ConfigSummary | null>;
+  resetConfig(userId: string): Promise<void>;
+}
+
+export class ConfigServiceImpl implements ConfigService {
+  private dataStore: DataStore;
+  private encryptionKey: string;
+
+  constructor(dataStore: DataStore, encryptionKey?: string) {
+    this.dataStore = dataStore;
+    this.encryptionKey = encryptionKey || process.env.ENCRYPTION_KEY || 'default-key-change-me';
+  }
+
+  async isConfigured(userId: string): Promise<boolean> {
+    const config = await this.getConfig(userId);
+    return config !== null && !!config.tdxApiKey;
+  }
+
+  async saveTdxApiKey(userId: string, apiKey: string): Promise<void> {
+    const encryptedKey = this.encrypt(apiKey);
+    const config = (await this.getConfig(userId)) || this.createEmptyConfig(userId);
+
+    config.tdxApiKey = encryptedKey;
+    config.updatedAt = new Date();
+
+    await this.saveConfig(userId, config);
+  }
+
+  async getTdxApiKey(userId: string): Promise<string | null> {
+    const config = await this.getConfig(userId);
+    if (!config || !config.tdxApiKey) {
+      return null;
+    }
+
+    try {
+      return this.decrypt(config.tdxApiKey);
+    } catch (error) {
+      console.error('Failed to decrypt API key:', error);
+      return null;
+    }
+  }
+
+  async validateApiKey(apiKey: string): Promise<boolean> {
+    try {
+      // Test API call to validate key
+      const testUrl = 'https://tdx.transportdata.tw/api/basic/v2/Basic/City';
+      const response = await fetch(testUrl, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      return response.ok;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  async saveBackendConfig(userId: string, backendConfig: BackendConfig): Promise<void> {
+    const config = (await this.getConfig(userId)) || this.createEmptyConfig(userId);
+
+    config.backendConfig = backendConfig;
+    config.updatedAt = new Date();
+
+    await this.saveConfig(userId, config);
+  }
+
+  async getConfigSummary(userId: string): Promise<ConfigSummary | null> {
+    const config = await this.getConfig(userId);
+    if (!config) {
+      return null;
+    }
+
+    return {
+      hasApiKey: !!config.tdxApiKey,
+      backendType: config.backendConfig?.type || 'none',
+      configuredAt: config.createdAt,
+    };
+  }
+
+  async resetConfig(userId: string): Promise<void> {
+    const key = `config:${userId}`;
+    await this.dataStore.delete(key);
+
+    // Also delete all user routes
+    const routeKeys = await this.dataStore.listKeys(`route:${userId}:`);
+    for (const routeKey of routeKeys) {
+      await this.dataStore.delete(routeKey);
+    }
+  }
+
+  private async getConfig(userId: string): Promise<UserConfig | null> {
+    const key = `config:${userId}`;
+    return await this.dataStore.get(key);
+  }
+
+  private async saveConfig(userId: string, config: UserConfig): Promise<void> {
+    const key = `config:${userId}`;
+    await this.dataStore.set(key, config);
+  }
+
+  private createEmptyConfig(userId: string): UserConfig {
+    return {
+      userId,
+      tdxApiKey: '',
+      backendConfig: { type: 'supabase', connectionString: '' },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+  }
+
+  private encrypt(text: string): string {
+    const algorithm = 'aes-256-cbc';
+    const key = crypto.scryptSync(this.encryptionKey, 'salt', 32);
+    const iv = crypto.randomBytes(16);
+
+    const cipher = crypto.createCipheriv(algorithm, key, iv);
+    let encrypted = cipher.update(text, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+
+    return `${iv.toString('hex')}:${encrypted}`;
+  }
+
+  private decrypt(encryptedText: string): string {
+    const algorithm = 'aes-256-cbc';
+    const key = crypto.scryptSync(this.encryptionKey, 'salt', 32);
+
+    const [ivHex, encrypted] = encryptedText.split(':');
+    const iv = Buffer.from(ivHex, 'hex');
+
+    const decipher = crypto.createDecipheriv(algorithm, key, iv);
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+
+    return decrypted;
+  }
+}
