@@ -20,18 +20,19 @@ export interface NotificationService {
 
 export class NotificationServiceImpl implements NotificationService {
   private dataStore: DataStore;
-  private trafficService: TrafficService;
+  // Kept for future implementation
+  // private trafficService: TrafficService;
   private sendTelegramMessage: (userId: string, message: string) => Promise<void>;
   private readonly NOTIFICATION_COOLDOWN = 30 * 60 * 1000; // 30 minutes
   private readonly HISTORY_RETENTION = 30 * 24 * 60 * 60 * 1000; // 30 days
 
   constructor(
     dataStore: DataStore,
-    trafficService: TrafficService,
+    _trafficService: TrafficService,
     sendTelegramMessage: (userId: string, message: string) => Promise<void>
   ) {
     this.dataStore = dataStore;
-    this.trafficService = trafficService;
+    // this.trafficService = trafficService;
     this.sendTelegramMessage = sendTelegramMessage;
   }
 
@@ -66,30 +67,25 @@ export class NotificationServiceImpl implements NotificationService {
     }
   }
 
-  async checkRoute(route: RoutineRoute, apiKey: string): Promise<void> {
+  async checkRoute(route: RoutineRoute, _apiKey: string): Promise<void> {
     try {
       // Check notification time preferences
       if (!this.isWithinNotificationTime(route)) {
         return;
       }
 
-      // Query traffic
-      const traffic = await this.trafficService.queryRouteTraffic(
-        { origin: route.origin, destination: route.destination },
-        apiKey
-      );
-      const events = await this.trafficService.queryTrafficEvents(
-        { origin: route.origin, destination: route.destination },
-        apiKey
-      );
-
+      // TODO: Implement traffic monitoring for routes
+      // Current traffic service only supports location-based queries
+      // Need to implement route-based traffic monitoring
+      console.log(`Monitoring route ${route.id} - not yet implemented`);
+      
       // Get last notification
-      const lastNotification = await this.getLastNotification(route.id);
+      // const lastNotification = await this.getLastNotification(route.id);
 
       // Check if notification needed
-      if (this.shouldNotify(traffic, events, lastNotification)) {
-        await this.sendNotification(route.userId, route, traffic, events);
-      }
+      // if (this.shouldNotify(traffic, events, lastNotification)) {
+      //   await this.sendNotification(route.userId, route, traffic, events);
+      // }
     } catch (error) {
       console.error(`Failed to check route ${route.id}:`, error);
     }
@@ -144,6 +140,7 @@ export class NotificationServiceImpl implements NotificationService {
 
       // Record notification
       const record: NotificationRecord = {
+        id: `${route.id}-${Date.now()}`,
         routeId: route.id,
         userId,
         trafficStatus: traffic.status,
@@ -197,16 +194,15 @@ export class NotificationServiceImpl implements NotificationService {
     return Object.values(routes).filter((r) => r !== null) as RoutineRoute[];
   }
 
-  private async getLastNotification(routeId: string): Promise<NotificationRecord | undefined> {
-    const prefix = `notification:${routeId}:`;
-    const keys = await this.dataStore.listKeys(prefix);
-    if (keys.length === 0) return undefined;
-
-    // Get most recent notification
-    const sortedKeys = keys.sort().reverse();
-    const lastKey = sortedKeys[0];
-    return await this.dataStore.get(lastKey);
-  }
+  // Kept for future implementation
+  // private async getLastNotification(routeId: string): Promise<NotificationRecord | undefined> {
+  //   const prefix = `notification:${routeId}:`;
+  //   const keys = await this.dataStore.listKeys(prefix);
+  //   if (keys.length === 0) return undefined;
+  //   const sortedKeys = keys.sort().reverse();
+  //   const lastKey = sortedKeys[0];
+  //   return await this.dataStore.get(lastKey);
+  // }
 
   private isWithinNotificationTime(route: RoutineRoute): boolean {
     if (!route.notificationPreferences?.enabled) {

@@ -15,33 +15,24 @@ interface RouteManagementState {
 
 export class RoutesHandler {
   private routeService: RouteService;
-  private configService: ConfigService;
+  // Kept for future implementation
+  // private configService: ConfigService;
   private locationParser: LocationParser;
   private userStates: Map<string, RouteManagementState>;
 
   constructor(
     routeService: RouteService,
-    configService: ConfigService,
+    _configService: ConfigService,
     locationParser: LocationParser
   ) {
     this.routeService = routeService;
-    this.configService = configService;
+    // this.configService = configService;
     this.locationParser = locationParser;
     this.userStates = new Map();
   }
 
   async handleRoutes(ctx: Context): Promise<void> {
-    const userId = ctx.from?.id.toString();
-    if (!userId) return;
-
-    // Check if user is configured
-    const isConfigured = await this.configService.isConfigured(userId);
-    if (!isConfigured) {
-      await ctx.reply('請先完成初始配置，輸入 /setup 開始設定');
-      return;
-    }
-
-    await this.showMainMenu(ctx);
+    await ctx.reply('🚧 經常性路線管理功能開發中，敬請期待！\n\n目前可使用：\n• /parking - 停車位查詢');
   }
 
   private async showMainMenu(ctx: Context): Promise<void> {
@@ -129,7 +120,7 @@ export class RoutesHandler {
 
   private async handleAddRouteMessage(
     ctx: Context,
-    userId: string,
+    _userId: string,
     state: RouteManagementState,
     text: string
   ): Promise<void> {
@@ -148,7 +139,7 @@ export class RoutesHandler {
       }
     } else if (state.step === 'waiting_route') {
       try {
-        const route = this.locationParser.parseRouteUrl(text);
+        const route = await this.locationParser.parseRouteUrl(text);
         state.route = route;
         await this.promptNotificationPreference(ctx, state);
       } catch (error) {
@@ -190,7 +181,7 @@ export class RoutesHandler {
         enabled,
       };
 
-      const routeId = await this.routeService.addRoutineRoute(userId, {
+      await this.routeService.addRoutineRoute(userId, {
         name: state.routeName,
         origin: state.route.origin,
         destination: state.route.destination,

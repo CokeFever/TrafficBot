@@ -19,6 +19,8 @@ export class BotHandlerImpl implements BotHandler {
   private bot: Telegraf;
   private commandHandlers: Map<string, (ctx: Context, args: string[]) => Promise<void>>;
   private callbackHandlers: Map<string, (ctx: Context, data: string) => Promise<void>>;
+  private textMessageHandler?: (ctx: Context) => Promise<void>;
+  private locationHandler?: (ctx: Context, location: Coordinates) => Promise<void>;
 
   constructor(botToken: string) {
     this.bot = new Telegraf(botToken);
@@ -38,14 +40,28 @@ export class BotHandlerImpl implements BotHandler {
     this.bot.command('config', (ctx) => this.routeToHandler(ctx, 'config'));
     this.bot.command('reset', (ctx) => this.routeToHandler(ctx, 'reset'));
 
+    // Text message handler
+    this.bot.on('text', async (ctx) => {
+      if (this.textMessageHandler) {
+        await this.textMessageHandler(ctx);
+      }
+    });
+
     // Location handler
-    this.bot.on('location', (ctx) => {
+    this.bot.on('location', async (ctx) => {
       if (ctx.message && 'location' in ctx.message) {
         const location = ctx.message.location;
-        this.handleLocation(ctx, {
-          latitude: location.latitude,
-          longitude: location.longitude,
-        });
+        if (this.locationHandler) {
+          await this.locationHandler(ctx, {
+            latitude: location.latitude,
+            longitude: location.longitude,
+          });
+        } else {
+          await this.handleLocation(ctx, {
+            latitude: location.latitude,
+            longitude: location.longitude,
+          });
+        }
       }
     });
 
@@ -76,7 +92,7 @@ export class BotHandlerImpl implements BotHandler {
     }
   }
 
-  async handleLocation(ctx: Context, location: Coordinates): Promise<void> {
+  async handleLocation(ctx: Context, _location: Coordinates): Promise<void> {
     // Location handling will be implemented by specific handlers
     // This is a placeholder that can be overridden
     await ctx.reply('已收到位置資訊');
@@ -117,12 +133,22 @@ export class BotHandlerImpl implements BotHandler {
     this.callbackHandlers.set(action, handler);
   }
 
+  registerTextMessageHandler(handler: (ctx: Context) => Promise<void>): void {
+    this.textMessageHandler = handler;
+  }
+
+  registerLocationHandler(handler: (ctx: Context, location: Coordinates) => Promise<void>): void {
+    this.locationHandler = handler;
+  }
+
   private async handleStartCommand(ctx: Context): Promise<void> {
     const welcomeMessage = `
 🚗 歡迎使用停車位查詢 Bot！
 
-本 Bot 提供以下功能：
+✅ 目前可用功能：
 • 停車位搜尋
+
+🚧 開發中功能：
 • 車流查詢
 • 經常性路線管理
 • 主動推播通知
@@ -138,9 +164,14 @@ export class BotHandlerImpl implements BotHandler {
     const helpMessage = `
 📖 指令說明
 
+✅ 可用功能：
 /parking - 搜尋附近停車位
-/traffic - 查詢路線車流
-/routes - 管理經常性路線
+
+🚧 開發中功能：
+/traffic - 查詢路線車流（開發中）
+/routes - 管理經常性路線（開發中）
+
+⚙️ 設定：
 /setup - 初始配置
 /config - 查看當前配置
 /reset - 重置配置
@@ -185,7 +216,7 @@ export class BotHandlerImpl implements BotHandler {
     }
   }
 
-  private async handleError(ctx: Context, error: any): Promise<void> {
+  private async handleError(ctx: Context, _error: any): Promise<void> {
     const errorMessage = '系統發生錯誤，我們已記錄此問題，請稍後再試';
     try {
       await ctx.reply(errorMessage);

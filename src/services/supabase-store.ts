@@ -67,9 +67,7 @@ export class SupabaseDataStore extends BaseDataStore {
   }
 
   // Helper method to initialize the key-value store table
-  static async initializeSchema(supabaseUrl: string, supabaseKey: string): Promise<void> {
-    const client = createClient(supabaseUrl, supabaseKey);
-    
+  static async initializeSchema(_supabaseUrl: string, _supabaseKey: string): Promise<void> {
     // This should be run as a migration, but included here for reference
     const createTableSQL = `
       CREATE TABLE IF NOT EXISTS key_value_store (

@@ -53,26 +53,31 @@ export function transformTdxParking(
   tdxData: TdxParkingResponse,
   referencePoint: Coordinates
 ): ParkingFacility[] {
-  return tdxData.ParkingAvailabilities.map((item) => ({
-    id: item.CarParkID,
-    name: item.CarParkName.Zh_tw || item.CarParkName.En,
-    address: item.Address,
-    location: {
-      latitude: item.Position.PositionLat,
-      longitude: item.Position.PositionLon,
-    },
-    totalSpaces: item.TotalSpaces,
-    availableSpaces: item.AvailableSpaces,
-    fee: item.ChargeDescription.Zh_tw || '資訊未提供',
-    distance: calculateDistance(
-      referencePoint,
-      {
-        latitude: item.Position.PositionLat,
-        longitude: item.Position.PositionLon,
-      }
-    ),
-    type: 'parking_lot', // Default, can be refined based on data
-  }));
+  return tdxData.ParkingAvailabilities.map((item) => {
+    // Handle both Position (availability API) and CarParkPosition (nearby API)
+    const position = (item as any).Position || (item as any).CarParkPosition;
+    const lat = position?.PositionLat;
+    const lon = position?.PositionLon;
+    
+    if (!lat || !lon) {
+      console.warn(`Missing position for parking lot: ${item.CarParkID}`);
+      return null;
+    }
+    
+    const location = { latitude: lat, longitude: lon };
+    
+    return {
+      id: item.CarParkID,
+      name: typeof item.CarParkName === 'string' ? item.CarParkName : (item.CarParkName?.Zh_tw || item.CarParkName?.En || item.CarParkID),
+      address: typeof item.Address === 'string' ? item.Address : (item.Address as any)?.Zh_tw || '',
+      location,
+      totalSpaces: item.TotalSpaces || 0,
+      availableSpaces: item.AvailableSpaces || 0,
+      fee: typeof item.ChargeDescription === 'string' ? item.ChargeDescription : (item.ChargeDescription?.Zh_tw || '資訊未提供'),
+      distance: calculateDistance(referencePoint, location),
+      type: 'parking_lot',
+    };
+  }).filter((item): item is ParkingFacility => item !== null);
 }
 
 export function transformTdxEvents(tdxData: TdxEventResponse): TrafficEvent[] {

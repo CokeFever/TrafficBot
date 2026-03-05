@@ -2,11 +2,11 @@ import { Context } from 'telegraf';
 import { TrafficService } from '../services/traffic-service';
 import { ConfigService } from '../services/config-service';
 import { LocationParser } from '../utils/location-parser';
-import { Route } from '../models/types';
+import { Coordinates } from '../models/types';
 
 interface TrafficQueryState {
-  step: 'waiting_route' | 'complete';
-  route?: Route;
+  step: 'waiting_location' | 'complete';
+  location?: Coordinates;
 }
 
 export class TrafficHandler {
@@ -27,19 +27,27 @@ export class TrafficHandler {
   }
 
   async handleTraffic(ctx: Context): Promise<void> {
+    await ctx.reply('🚧 車流查詢功能開發中，敬請期待！\n\n目前可使用：\n• /parking - 停車位查詢');
+  }
+
+  async handleLocation(ctx: Context, location: Coordinates): Promise<void> {
     const userId = ctx.from?.id.toString();
     if (!userId) return;
 
-    // Check if user is configured
-    const isConfigured = await this.configService.isConfigured(userId);
-    if (!isConfigured) {
-      await ctx.reply('請先完成初始配置，輸入 /setup 開始設定');
+    const state = this.userStates.get(userId);
+    if (!state || state.step !== 'waiting_location') return;
+
+    // Validate location is in Taiwan
+    if (!this.locationParser.isInTaiwan(location)) {
+      await ctx.reply('❌ 座標不在台灣境內，請提供台灣的位置');
       return;
     }
 
-    // Start traffic query flow
-    this.userStates.set(userId, { step: 'waiting_route' });
-    await this.promptRoute(ctx);
+    // Save location and perform query
+    state.location = location;
+    state.step = 'complete';
+
+    await this.performQuery(ctx, userId, location);
   }
 
   async handleMessage(ctx: Context): Promise<void> {
@@ -47,41 +55,39 @@ export class TrafficHandler {
     if (!userId) return;
 
     const state = this.userStates.get(userId);
-    if (!state || state.step !== 'waiting_route') return;
+    if (!state || state.step !== 'waiting_location') return;
 
     const text = ctx.text;
     if (!text) return;
 
-    // Try to parse Google Maps route URL
+    // Try to parse Google Maps URL
     try {
-      const route = this.locationParser.parseRouteUrl(text);
-      await this.performQuery(ctx, userId, route);
+      const parsed = this.locationParser.parseGoogleMapsUrl(text);
+      await this.handleLocation(ctx, parsed.coordinates);
     } catch (error) {
-      await ctx.reply(
-        '❌ 無法解析路線 URL\n\n請提供 Google Maps 路線規劃連結\n範例：https://www.google.com/maps/dir/...'
-      );
+      await ctx.reply('❌ 無法識別的位置格式，請分享 Telegram 位置或提供 Google Maps 連結');
     }
   }
 
-  private async promptRoute(ctx: Context): Promise<void> {
-    const message = `
-🚗 請提供路線資訊
+  // Kept for future implementation
+  // private async promptLocation(ctx: Context): Promise<void> {
+  //   const message = `
+  // 🚗 請提供查詢位置
+  // 您可以：
+  // 1. 點擊下方按鈕分享當前位置
+  // 2. 傳送 Google Maps 連結
+  // 請選擇或輸入位置：
+  //   `.trim();
+  //   await ctx.reply(message, {
+  //     reply_markup: {
+  //       keyboard: [[{ text: '📍 分享當前位置', request_location: true }]],
+  //       resize_keyboard: true,
+  //       one_time_keyboard: true,
+  //     },
+  //   });
+  // }
 
-請傳送 Google Maps 路線規劃連結：
-
-如何取得：
-1. 開啟 Google Maps
-2. 規劃路線（輸入起點和終點）
-3. 點擊「分享」
-4. 複製連結並傳送給我
-
-請輸入路線連結：
-    `.trim();
-
-    await ctx.reply(message);
-  }
-
-  private async performQuery(ctx: Context, userId: string, route: Route): Promise<void> {
+  private async performQuery(ctx: Context, userId: string, location: Coordinates): Promise<void> {
     try {
       // Get user's API key
       const apiKey = await this.configService.getTdxApiKey(userId);
@@ -94,36 +100,18 @@ export class TrafficHandler {
       // Show querying message
       await ctx.reply('🔍 查詢中...');
 
-      // Query traffic info
-      const trafficInfo = await this.trafficService.queryRouteTraffic(route, apiKey);
-      const events = await this.trafficService.queryTrafficEvents(route, apiKey);
+      // Query traffic info (2km radius)
+      const trafficInfo = await this.trafficService.queryNearbyTraffic(location, 2000, apiKey);
 
       // Format and send results
-      const message = this.trafficService.formatTrafficInfo(trafficInfo, events);
+      const message = this.trafficService.formatTrafficInfo(trafficInfo);
       await ctx.reply(message);
 
-      // Offer to save as routine route
-      await ctx.reply('💡 您可以將此路線加入經常性路線，以接收異常通知', {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '➕ 加入經常性路線', callback_data: 'routes:add_from_traffic' }],
-            [{ text: '🔄 重新查詢', callback_data: 'traffic:restart' }],
-          ],
-        },
-      });
-
-      // Save route temporarily for potential addition
-      state.route = route;
-      state.step = 'complete';
+      // Clean up state
+      this.userStates.delete(userId);
     } catch (error) {
       console.error('Traffic query error:', error);
-      
-      if (error instanceof Error && error.message.includes('車流查詢失敗')) {
-        await ctx.reply('❌ 查詢失敗，請稍後再試');
-      } else {
-        await ctx.reply('❌ 無法取得車流資料，該路線可能沒有即時資訊');
-      }
-      
+      await ctx.reply('❌ 查詢失敗，請稍後再試');
       this.userStates.delete(userId);
     }
   }
@@ -136,8 +124,9 @@ export class TrafficHandler {
     await this.handleTraffic(ctx);
   }
 
-  getRouteFromState(userId: string): Route | undefined {
-    return this.userStates.get(userId)?.route;
+  getRouteFromState(_userId: string): any {
+    // Kept for compatibility with routes handler
+    return undefined;
   }
 
   clearState(userId: string): void {

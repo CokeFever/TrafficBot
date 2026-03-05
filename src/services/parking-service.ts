@@ -2,6 +2,7 @@ import { Coordinates, ParkingFacility, SearchRadius } from '../models/types';
 import { TdxApiClientImpl } from '../integrations/tdx-client';
 import { transformTdxParking } from '../models/tdx-types';
 import { CacheLayer } from './cache';
+import { LocationParser } from '../utils/location-parser';
 
 export interface ParkingService {
   searchNearby(
@@ -18,10 +19,12 @@ export interface ParkingService {
 export class ParkingServiceImpl implements ParkingService {
   private tdxClient: TdxApiClientImpl;
   private cache: CacheLayer;
+  private locationParser: LocationParser;
 
   constructor(tdxClient: TdxApiClientImpl, cache: CacheLayer) {
     this.tdxClient = tdxClient;
     this.cache = cache;
+    this.locationParser = new LocationParser();
   }
 
   async searchNearby(
@@ -43,22 +46,33 @@ export class ParkingServiceImpl implements ParkingService {
     }
 
     try {
+      // Determine city from coordinates
+      const city = this.locationParser.getCityFromCoordinates(location);
+      console.log(`Querying parking for city: ${city}, location: ${location.latitude},${location.longitude}, radius: ${radius}`);
+      
       // Query TDX API
       const response = await this.tdxClient.queryParkingFacilities(
         location,
         radius,
-        apiKey
+        apiKey,
+        city
       );
 
-      // Transform and sort results
+      // Transform results
       const facilities = transformTdxParking(response, location);
-      const sorted = this.sortByDistance(facilities);
+      
+      // Filter by radius (since API doesn't support $spatialFilter reliably)
+      const filtered = facilities.filter(f => f.distance <= radius);
+      
+      // Sort by distance
+      const sorted = this.sortByDistance(filtered);
 
       // Cache results
       await this.cache.set(cacheKey, sorted);
 
       return sorted;
     } catch (error) {
+      console.error('Parking query error:', error);
       throw new Error('停車位查詢失敗，請稍後再試');
     }
   }

@@ -1,11 +1,10 @@
 import { Context } from 'telegraf';
 import { ConfigService } from '../services/config-service';
-import { BackendConfig } from '../models/types';
 
 interface SetupState {
-  step: 'api_key' | 'backend_type' | 'backend_url' | 'complete';
-  apiKey?: string;
-  backendType?: string;
+  step: 'client_id' | 'client_secret' | 'complete';
+  clientId?: string;
+  clientSecret?: string;
 }
 
 export class SetupHandler {
@@ -39,8 +38,8 @@ export class SetupHandler {
     }
 
     // Start setup process
-    this.userStates.set(userId, { step: 'api_key' });
-    await this.promptApiKey(ctx);
+    this.userStates.set(userId, { step: 'client_id' });
+    await this.promptClientId(ctx);
   }
 
   async handleMessage(ctx: Context): Promise<void> {
@@ -54,11 +53,11 @@ export class SetupHandler {
     if (!text) return;
 
     switch (state.step) {
-      case 'api_key':
-        await this.handleApiKeyInput(ctx, userId, text);
+      case 'client_id':
+        await this.handleClientIdInput(ctx, userId, text);
         break;
-      case 'backend_url':
-        await this.handleBackendUrlInput(ctx, userId, text);
+      case 'client_secret':
+        await this.handleClientSecretInput(ctx, userId, text);
         break;
     }
   }
@@ -117,27 +116,69 @@ export class SetupHandler {
     }
   }
 
-  private async promptApiKey(ctx: Context): Promise<void> {
+  private async promptClientId(ctx: Context): Promise<void> {
     const message = `
-🔑 請輸入您的 TDX API 金鑰
+🔑 TDX API 配置 (步驟 1/2)
+
+請輸入您的 TDX API Client ID
 
 如何取得 API 金鑰：
 1. 前往 TDX 平台：https://tdx.transportdata.tw/
 2. 註冊並登入
-3. 在「會員中心」取得 API 金鑰
+3. 在「會員中心」→「API 金鑰管理」取得
+4. 您會看到 Client ID 和 Client Secret 兩個值
 
-請直接輸入您的 API 金鑰：
+請輸入 Client ID：
     `.trim();
 
     await ctx.reply(message);
   }
 
-  private async handleApiKeyInput(ctx: Context, userId: string, apiKey: string): Promise<void> {
-    // Validate API key format (basic check)
-    if (apiKey.length < 20) {
-      await ctx.reply('❌ API 金鑰格式不正確，請重新輸入');
+  private async promptClientSecret(ctx: Context): Promise<void> {
+    const message = `
+🔑 TDX API 配置 (步驟 2/2)
+
+請輸入您的 TDX API Client Secret
+
+⚠️ 注意：Client Secret 是敏感資訊，輸入後會被加密儲存
+
+請輸入 Client Secret：
+    `.trim();
+
+    await ctx.reply(message);
+  }
+
+  private async handleClientIdInput(ctx: Context, userId: string, clientId: string): Promise<void> {
+    // Validate Client ID format (basic check)
+    if (clientId.length < 10) {
+      await ctx.reply('❌ Client ID 格式不正確，請重新輸入');
       return;
     }
+
+    const state = this.userStates.get(userId);
+    if (!state) return;
+
+    state.clientId = clientId;
+    state.step = 'client_secret';
+    await this.promptClientSecret(ctx);
+  }
+
+  private async handleClientSecretInput(ctx: Context, userId: string, clientSecret: string): Promise<void> {
+    // Validate Client Secret format (basic check)
+    if (clientSecret.length < 10) {
+      await ctx.reply('❌ Client Secret 格式不正確，請重新輸入');
+      return;
+    }
+
+    const state = this.userStates.get(userId);
+    if (!state || !state.clientId) {
+      await ctx.reply('❌ 配置流程錯誤，請重新使用 /setup');
+      this.userStates.delete(userId);
+      return;
+    }
+
+    // Combine Client ID and Secret in the format expected by TDX API
+    const apiKey = `${state.clientId}:${clientSecret}`;
 
     // Show validating message
     await ctx.reply('⏳ 驗證 API 金鑰中...');
@@ -146,101 +187,23 @@ export class SetupHandler {
     const isValid = await this.configService.validateApiKey(apiKey);
     if (!isValid) {
       await ctx.reply(
-        '❌ API 金鑰驗證失敗，請確認金鑰是否正確\n\n取得金鑰：https://tdx.transportdata.tw/'
+        '❌ API 金鑰驗證失敗，請確認 Client ID 和 Client Secret 是否正確\n\n取得金鑰：https://tdx.transportdata.tw/\n\n請重新使用 /setup 開始配置'
       );
+      this.userStates.delete(userId);
       return;
     }
 
     // Save API key
-    await this.configService.saveTdxApiKey(userId, apiKey);
-    await ctx.reply('✅ API 金鑰驗證成功！');
-
-    // Move to backend configuration
-    const state = this.userStates.get(userId);
-    if (state) {
-      state.step = 'backend_type';
-      state.apiKey = apiKey;
-    }
-
-    await this.promptBackendType(ctx);
-  }
-
-  private async promptBackendType(ctx: Context): Promise<void> {
-    const message = `
-🔧 請選擇 Backend 類型
-
-目前支援：
-• Supabase - PostgreSQL 資料庫，免費額度大
-    `.trim();
-
-    await ctx.reply(message, {
-      reply_markup: {
-        inline_keyboard: [[{ text: 'Supabase', callback_data: 'setup:backend:supabase' }]],
-      },
-    });
-  }
-
-  async handleBackendTypeSelection(ctx: Context, backendType: string): Promise<void> {
-    const userId = ctx.from?.id.toString();
-    if (!userId) return;
-
-    const state = this.userStates.get(userId);
-    if (!state) return;
-
-    state.backendType = backendType;
-
-    if (backendType === 'supabase') {
-      state.step = 'backend_url';
-      await this.promptSupabaseUrl(ctx);
-    }
-  }
-
-  private async promptSupabaseUrl(ctx: Context): Promise<void> {
-    const message = `
-🔗 請輸入 Supabase 連線資訊
-
-格式：postgresql://[user]:[password]@[host]:[port]/[database]
-
-如何取得：
-1. 前往 https://supabase.com/
-2. 建立專案
-3. 在 Settings > Database 找到 Connection String
-
-請輸入連線字串：
-    `.trim();
-
-    await ctx.reply(message);
-  }
-
-  private async handleBackendUrlInput(
-    ctx: Context,
-    userId: string,
-    connectionString: string
-  ): Promise<void> {
-    const state = this.userStates.get(userId);
-    if (!state || !state.backendType) return;
-
-    // Basic validation
-    if (!connectionString.startsWith('postgresql://')) {
-      await ctx.reply('❌ 連線字串格式不正確，請重新輸入');
-      return;
-    }
-
-    // Save backend config
-    const backendConfig: BackendConfig = {
-      type: 'supabase',
-      connectionString,
-    };
-
     try {
-      await this.configService.saveBackendConfig(userId, backendConfig);
-      await ctx.reply('✅ Backend 配置成功！');
+      await this.configService.saveTdxApiKey(userId, apiKey);
+      await ctx.reply('✅ API 金鑰驗證成功！');
 
       // Complete setup
       state.step = 'complete';
       await this.completeSetup(ctx, userId);
     } catch (error) {
-      await ctx.reply('❌ Backend 配置失敗，請檢查連線資訊是否正確');
+      await ctx.reply('❌ 儲存配置失敗，請稍後再試');
+      this.userStates.delete(userId);
     }
   }
 

@@ -52,18 +52,54 @@ export class ConfigServiceImpl implements ConfigService {
 
   async validateApiKey(apiKey: string): Promise<boolean> {
     try {
-      // Test API call to validate key
+      // apiKey format: "clientId:clientSecret"
+      const [clientId, clientSecret] = apiKey.split(':');
+      
+      if (!clientId || !clientSecret) {
+        return false;
+      }
+
+      // Step 1: Get access token from TDX
+      const tokenUrl = 'https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token';
+      
+      const tokenParams = new URLSearchParams();
+      tokenParams.append('grant_type', 'client_credentials');
+      tokenParams.append('client_id', clientId);
+      tokenParams.append('client_secret', clientSecret);
+
+      const tokenResponse = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: tokenParams.toString(),
+      });
+
+      if (!tokenResponse.ok) {
+        console.error('Token request failed:', tokenResponse.status, tokenResponse.statusText);
+        return false;
+      }
+
+      const tokenData: any = await tokenResponse.json();
+      const accessToken = tokenData.access_token;
+
+      if (!accessToken) {
+        return false;
+      }
+
+      // Step 2: Test API call with the access token
       const testUrl = 'https://tdx.transportdata.tw/api/basic/v2/Basic/City';
       const response = await fetch(testUrl, {
         method: 'GET',
         headers: {
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
       });
 
       return response.ok;
     } catch (error) {
+      console.error('API key validation error:', error);
       return false;
     }
   }

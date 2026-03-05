@@ -8,12 +8,12 @@ import { TdxApiClientImpl } from './integrations/tdx-client';
 import { ParkingServiceImpl } from './services/parking-service';
 import { TrafficServiceImpl } from './services/traffic-service';
 import { RouteServiceImpl } from './services/route-service';
-import { NotificationServiceImpl } from './services/notification-service';
+// import { NotificationServiceImpl } from './services/notification-service';
 import { ConfigServiceImpl } from './services/config-service';
 import { SupabaseDataStore } from './services/supabase-store';
 import { CacheLayer } from './services/cache';
 import { LocationParser } from './utils/location-parser';
-import { createMonitoringJob } from './jobs/monitoring-job';
+// import { createMonitoringJob } from './jobs/monitoring-job';
 
 // Load environment variables
 dotenv.config();
@@ -68,14 +68,6 @@ async function main() {
   botHandler.registerCommandHandler('routes', (ctx) => routesHandler.handleRoutes(ctx));
 
   // Register callback handlers
-  botHandler.registerCallbackHandler('setup', (ctx, data) => {
-    const [action, value] = data.split(':');
-    if (action === 'backend') {
-      return setupHandler.handleBackendTypeSelection(ctx, value);
-    }
-    return Promise.resolve();
-  });
-
   botHandler.registerCallbackHandler('config', (ctx, data) => {
     if (data === 'reset') {
       return setupHandler.handleReset(ctx);
@@ -134,18 +126,34 @@ async function main() {
     return Promise.resolve();
   });
 
-  // Initialize notification service with Telegram message sender
-  const sendTelegramMessage = async (userId: string, message: string) => {
-    await botHandler.sendMessage(userId, message);
-  };
-  const notificationService = new NotificationServiceImpl(
-    dataStore,
-    trafficService,
-    sendTelegramMessage
-  );
+  // Register text message handler
+  botHandler.registerTextMessageHandler(async (ctx) => {
+    // Route text messages to appropriate handlers based on user state
+    await setupHandler.handleMessage(ctx);
+    await parkingHandler.handleMessage(ctx);
+    await trafficHandler.handleMessage(ctx);
+    await routesHandler.handleMessage(ctx);
+  });
 
-  // Initialize monitoring job
-  const monitoringJob = createMonitoringJob(notificationService);
+  // Register location handler
+  botHandler.registerLocationHandler(async (ctx, location) => {
+    // Route location messages to parking and traffic handlers
+    await parkingHandler.handleLocation(ctx, location);
+    await trafficHandler.handleLocation(ctx, location);
+  });
+
+  // Initialize notification service with Telegram message sender (for future monitoring features)
+  // const sendTelegramMessage = async (userId: string, message: string) => {
+  //   await botHandler.sendMessage(userId, message);
+  // };
+  // const notificationService = new NotificationServiceImpl(
+  //   dataStore,
+  //   trafficService,
+  //   sendTelegramMessage
+  // );
+
+  // Initialize monitoring job (for future use with scheduled tasks)
+  // const monitoringJob = createMonitoringJob(notificationService);
 
   // Start bot
   botHandler.launch();
