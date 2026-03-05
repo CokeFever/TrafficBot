@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import http from 'http';
 import { BotHandlerImpl } from './handlers/bot-handler';
 import { SetupHandler } from './handlers/setup-handler';
 import { ParkingHandler } from './handlers/parking-handler';
@@ -158,13 +159,31 @@ async function main() {
   // Start bot
   botHandler.launch();
 
+  // Create HTTP server for Render health check
+  const PORT = process.env.PORT || 3000;
+  const server = http.createServer((req, res) => {
+    if (req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', message: 'Bot is running' }));
+    } else {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('Telegram Parking Bot is running');
+    }
+  });
+
+  server.listen(PORT, () => {
+    console.log(`Health check server listening on port ${PORT}`);
+  });
+
   // Graceful shutdown
   process.once('SIGINT', () => {
     console.log('Received SIGINT, shutting down...');
+    server.close();
     botHandler.stop();
   });
   process.once('SIGTERM', () => {
     console.log('Received SIGTERM, shutting down...');
+    server.close();
     botHandler.stop();
   });
 
