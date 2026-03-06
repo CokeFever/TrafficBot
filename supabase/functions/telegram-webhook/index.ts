@@ -152,6 +152,7 @@ async function handleParkingCommand(
       reply_markup: {
         inline_keyboard: [
           [
+            { text: '250m', callback_data: 'parking:radius:250' },
             { text: '500m', callback_data: 'parking:radius:500' },
             { text: '1km', callback_data: 'parking:radius:1000' },
           ],
@@ -272,6 +273,7 @@ async function handleLocation(
         reply_markup: {
           inline_keyboard: [
             [
+              { text: '250m', callback_data: 'parking:radius:250' },
               { text: '500m', callback_data: 'parking:radius:500' },
               { text: '1km', callback_data: 'parking:radius:1000' },
             ],
@@ -359,6 +361,7 @@ async function handleMapsUrl(
         reply_markup: {
           inline_keyboard: [
             [
+              { text: '250m', callback_data: 'parking:radius:250' },
               { text: '500m', callback_data: 'parking:radius:500' },
               { text: '1km', callback_data: 'parking:radius:1000' },
             ],
