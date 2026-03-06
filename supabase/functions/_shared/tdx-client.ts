@@ -131,7 +131,8 @@ export class TdxApiClient {
       throw new Error(`Failed to fetch nearby parking: ${response.statusText}`);
     }
 
-    return await response.json();
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
   }
 
   private async getParkingAvailability(
@@ -149,7 +150,8 @@ export class TdxApiClient {
       return [];
     }
 
-    return await response.json();
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
   }
 
   private mergeParkingData(
@@ -159,7 +161,13 @@ export class TdxApiClient {
     userLon: number
   ): ParkingInfo[] {
     const availabilityMap = new Map<string, ParkingAvailability>();
-    availability.forEach((a) => availabilityMap.set(a.CarParkID, a));
+    
+    // Handle case where availability might not be an array
+    if (Array.isArray(availability)) {
+      availability.forEach((a) => availabilityMap.set(a.CarParkID, a));
+    } else {
+      console.warn('Availability data is not an array:', availability);
+    }
 
     return lots
       .map((lot) => {
