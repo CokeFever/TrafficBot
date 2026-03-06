@@ -1,0 +1,46 @@
+name: Deploy to Supabase
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'supabase/functions/**'
+      - 'supabase/migrations/**'
+      - '.github/workflows/deploy-supabase.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install Supabase CLI
+        run: |
+          npm install -g supabase
+
+      - name: Deploy to Supabase
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: yqpigatgtxvytmkxumxu
+        run: |
+          # Link project
+          supabase link --project-ref $SUPABASE_PROJECT_ID
+          
+          # Push database migrations
+          supabase db push
+          
+          # Deploy Edge Functions
+          supabase functions deploy telegram-webhook
+
+      - name: Deployment Summary
+        run: |
+          echo "✅ Deployment completed successfully!"
+          echo "Function URL: https://yqpigatgtxvytmkxumxu.supabase.co/functions/v1/telegram-webhook"
