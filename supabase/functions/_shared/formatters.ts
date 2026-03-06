@@ -6,29 +6,37 @@ export function formatParkingResults(results: ParkingInfo[], maxResults: number 
   }
 
   const limited = results.slice(0, maxResults);
-  let message = `🅿️ 找到 ${results.length} 個停車場\n\n`;
+  let message = `🅿️ 找到 ${results.length} 個停車場（顯示前 ${limited.length} 個）\n\n`;
 
   limited.forEach((parking, index) => {
     const availableText =
       parking.availableSpaces >= 0
         ? `${parking.availableSpaces}/${parking.totalSpaces}`
-        : '資訊未提供';
+        : '未提供';
 
     const statusEmoji = getAvailabilityEmoji(parking.availableSpaces, parking.totalSpaces);
 
     message += `${index + 1}. ${statusEmoji} ${parking.name}\n`;
-    message += `   📍 距離：${formatDistance(parking.distance)}\n`;
-    message += `   🚗 車位：${availableText}\n`;
-    message += `   💰 ${parking.fareInfo}\n`;
-    message += `   📌 ${parking.address}\n`;
+    message += `   📍 ${formatDistance(parking.distance)} | 🚗 ${availableText}\n`;
+    message += `   💰 ${truncateText(parking.fareInfo, 30)}\n`;
     message += `   🗺️ [導航](https://www.google.com/maps/dir/?api=1&destination=${parking.latitude},${parking.longitude})\n\n`;
   });
 
   if (results.length > maxResults) {
-    message += `\n... 還有 ${results.length - maxResults} 個停車場`;
+    message += `... 還有 ${results.length - maxResults} 個停車場`;
+  }
+
+  // Check message length and truncate if needed
+  if (message.length > 4000) {
+    message = message.substring(0, 3900) + '\n\n... (訊息過長，已截斷)';
   }
 
   return message;
+}
+
+function truncateText(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength - 3) + '...';
 }
 
 function getAvailabilityEmoji(available: number, total: number): string {
