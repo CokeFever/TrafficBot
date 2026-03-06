@@ -154,7 +154,6 @@ async function handleParkingCommand(
           [
             { text: '500m', callback_data: 'parking:radius:500' },
             { text: '1km', callback_data: 'parking:radius:1000' },
-            { text: '2km', callback_data: 'parking:radius:2000' },
           ],
         ],
       },
@@ -275,7 +274,6 @@ async function handleLocation(
             [
               { text: '500m', callback_data: 'parking:radius:500' },
               { text: '1km', callback_data: 'parking:radius:1000' },
-              { text: '2km', callback_data: 'parking:radius:2000' },
             ],
           ],
         },
@@ -363,7 +361,6 @@ async function handleMapsUrl(
             [
               { text: '500m', callback_data: 'parking:radius:500' },
               { text: '1km', callback_data: 'parking:radius:1000' },
-              { text: '2km', callback_data: 'parking:radius:2000' },
             ],
           ],
         },
