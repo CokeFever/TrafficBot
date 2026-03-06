@@ -84,14 +84,74 @@ export class ParkingServiceImpl implements ParkingService {
 
     const lines = [`🅿️ 找到 ${facilities.length} 個停車場\n`];
 
-    facilities.slice(0, 10).forEach((facility) => {
+    facilities.slice(0, 10).forEach((facility, index) => {
       lines.push(`📍 ${facility.name}`);
-      lines.push(`距離：${facility.distance} 公尺`);
-      lines.push(
-        `剩餘車位：${facility.availableSpaces} / ${facility.totalSpaces}`
-      );
-      lines.push(`收費：${facility.fee || '資訊未提供'}`);
-      lines.push(`[📍 導航](${this.generateNavigationLink(facility)})\n`);
+      
+      // 距離
+      lines.push(`距離：${facility.distance}m`);
+      
+      // 車位
+      if (facility.totalSpaces > 0) {
+        lines.push(`車位：${facility.availableSpaces} / ${facility.totalSpaces}`);
+      } else {
+        lines.push(`車位：未提供`);
+      }
+      
+      lines.push(''); // 空行
+      
+      // 特殊車位（只有 > 0 才顯示，不加單位）
+      const specialLines: string[] = [];
+      
+      if (facility.heavyMotorcycleSpaces && facility.heavyMotorcycleSpaces > 0) {
+        specialLines.push(`🏍️ 重機：${facility.heavyMotorcycleSpaces}`);
+      }
+      if (facility.chargingSpaces && facility.chargingSpaces > 0) {
+        specialLines.push(`⚡ 充電：${facility.chargingSpaces}`);
+      }
+      if (facility.handicapSpaces && facility.handicapSpaces > 0) {
+        specialLines.push(`♿ 殘障：${facility.handicapSpaces}`);
+      }
+      if (facility.womenChildrenSpaces && facility.womenChildrenSpaces > 0) {
+        specialLines.push(`👶 婦幼：${facility.womenChildrenSpaces}`);
+      }
+      
+      if (specialLines.length > 0) {
+        lines.push(...specialLines);
+        lines.push(''); // 空行
+      }
+      
+      // 收費
+      if (facility.fareDescription) {
+        lines.push('收費：');
+        if (facility.hourlyRate) {
+          lines.push(`- 計時：${facility.hourlyRate}`);
+        }
+        if (facility.monthlyRate) {
+          lines.push(`- 月租：${facility.monthlyRate}`);
+        }
+        if (facility.motorcycleMonthlyRate) {
+          lines.push(`- 重機月租：${facility.motorcycleMonthlyRate}`);
+        }
+        
+        // 如果沒有解析出細節，顯示原始說明（簡化版）
+        if (!facility.hourlyRate && !facility.monthlyRate) {
+          // 簡化收費說明（最多顯示前 100 字）
+          const simpleFare = facility.fareDescription.length > 100 
+            ? facility.fareDescription.substring(0, 100) + '...' 
+            : facility.fareDescription;
+          lines.push(simpleFare);
+        }
+      } else {
+        lines.push('收費：未提供');
+      }
+      
+      // 導航連結
+      lines.push(`[📍 導航](${this.generateNavigationLink(facility)})`);
+      
+      // 分隔線（除了最後一個）
+      if (index < Math.min(facilities.length, 10) - 1) {
+        lines.push('\n---\n');
+      }
     });
 
     if (facilities.length > 10) {

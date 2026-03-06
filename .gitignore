@@ -34,6 +34,9 @@ yarn-error.log*
 coverage/
 .nyc_output/
 
+# Test scripts (may contain sensitive data)
+test-*.ts
+
 # Temporary files
 tmp/
 temp/

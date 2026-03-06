@@ -49,6 +49,91 @@ export interface TdxEventResponse {
 // Data transformation functions
 import { ParkingFacility, TrafficEvent, Coordinates } from './types';
 
+// 解析特殊車位資訊
+interface SpecialSpaces {
+  heavyMotorcycle?: number;
+  charging?: number;
+  handicap?: number;
+  womenChildren?: number;
+}
+
+function parseSpecialSpaces(description: string): SpecialSpaces {
+  const result: SpecialSpaces = {};
+  
+  if (!description) return result;
+  
+  // 大型重機
+  const motorcycleMatch = description.match(/大[型重]?重?機[：:]?(\d+)格/);
+  if (motorcycleMatch) {
+    const count = parseInt(motorcycleMatch[1]);
+    if (count > 0) {
+      result.heavyMotorcycle = count;
+    }
+  }
+  
+  // 充電格位
+  const chargingMatch = description.match(/充電格?位[：:]?(\d+)[格個]/);
+  if (chargingMatch) {
+    const count = parseInt(chargingMatch[1]);
+    if (count > 0) {
+      result.charging = count;
+    }
+  }
+  
+  // 身心障礙停車位
+  const handicapMatch = description.match(/身心障礙停車位(\d+)格/);
+  if (handicapMatch) {
+    const count = parseInt(handicapMatch[1]);
+    if (count > 0) {
+      result.handicap = count;
+    }
+  }
+  
+  // 孕婦、育有六歲以下兒童停車位
+  const womenChildrenMatch = description.match(/孕婦、育有六歲以下兒童停車位(\d+)格/);
+  if (womenChildrenMatch) {
+    const count = parseInt(womenChildrenMatch[1]);
+    if (count > 0) {
+      result.womenChildren = count;
+    }
+  }
+  
+  return result;
+}
+
+// 解析收費資訊
+interface FareInfo {
+  hourlyRate?: string;
+  monthlyRate?: string;
+  motorcycleMonthlyRate?: string;
+}
+
+function parseFareInfo(fareDescription: string): FareInfo {
+  const result: FareInfo = {};
+  
+  if (!fareDescription) return result;
+  
+  // 計時收費
+  const hourlyMatch = fareDescription.match(/(\d+)元[/／]時/);
+  if (hourlyMatch) {
+    result.hourlyRate = `${hourlyMatch[1]}元/時`;
+  }
+  
+  // 月租（小型車）
+  const monthlyMatch = fareDescription.match(/月租[^0-9]*?(\d+,?\d*)元/);
+  if (monthlyMatch) {
+    result.monthlyRate = `${monthlyMatch[1]}元/月`;
+  }
+  
+  // 重機月租
+  const motorcycleMonthlyMatch = fareDescription.match(/大[型重]?重?機[^0-9]*?(\d+,?\d*)元/);
+  if (motorcycleMonthlyMatch) {
+    result.motorcycleMonthlyRate = `${motorcycleMonthlyMatch[1]}元/月`;
+  }
+  
+  return result;
+}
+
 export function transformTdxParking(
   tdxData: TdxParkingResponse,
   referencePoint: Coordinates
@@ -66,6 +151,18 @@ export function transformTdxParking(
     
     const location = { latitude: lat, longitude: lon };
     
+    // 取得描述和收費資訊
+    const description = (item as any).Description || '';
+    const fareDescription = typeof item.ChargeDescription === 'string' 
+      ? item.ChargeDescription 
+      : (item.ChargeDescription?.Zh_tw || (item as any).FareDescription || '');
+    
+    // 解析特殊車位
+    const specialSpaces = parseSpecialSpaces(description);
+    
+    // 解析收費資訊
+    const fareInfo = parseFareInfo(fareDescription);
+    
     return {
       id: item.CarParkID,
       name: typeof item.CarParkName === 'string' ? item.CarParkName : (item.CarParkName?.Zh_tw || item.CarParkName?.En || item.CarParkID),
@@ -73,9 +170,24 @@ export function transformTdxParking(
       location,
       totalSpaces: item.TotalSpaces || 0,
       availableSpaces: item.AvailableSpaces || 0,
-      fee: typeof item.ChargeDescription === 'string' ? item.ChargeDescription : (item.ChargeDescription?.Zh_tw || '資訊未提供'),
+      fee: fareDescription || '資訊未提供',
       distance: calculateDistance(referencePoint, location),
       type: 'parking_lot',
+      
+      // 特殊車位
+      heavyMotorcycleSpaces: specialSpaces.heavyMotorcycle,
+      chargingSpaces: specialSpaces.charging,
+      handicapSpaces: specialSpaces.handicap,
+      womenChildrenSpaces: specialSpaces.womenChildren,
+      
+      // 收費細節
+      hourlyRate: fareInfo.hourlyRate,
+      monthlyRate: fareInfo.monthlyRate,
+      motorcycleMonthlyRate: fareInfo.motorcycleMonthlyRate,
+      
+      // 原始資料
+      description,
+      fareDescription,
     };
   }).filter((item): item is ParkingFacility => item !== null);
 }

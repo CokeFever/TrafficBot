@@ -27,6 +27,21 @@ export interface ParkingFacility {
   fee: string;
   distance: number; // in meters
   type: 'parking_lot' | 'street_parking';
+  
+  // 特殊車位資訊
+  heavyMotorcycleSpaces?: number;
+  chargingSpaces?: number;
+  handicapSpaces?: number;
+  womenChildrenSpaces?: number;
+  
+  // 收費細節
+  hourlyRate?: string;
+  monthlyRate?: string;
+  motorcycleMonthlyRate?: string;
+  
+  // 原始資料（用於解析）
+  description?: string;
+  fareDescription?: string;
 }
 
 export type SearchRadius = 500 | 1000 | 2000; // in meters

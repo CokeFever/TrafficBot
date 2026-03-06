@@ -185,7 +185,7 @@ export class TdxApiClientImpl implements TdxApiClient {
       availMap.set(avail.CarParkID, avail);
     });
     
-    // Combine data
+    // Combine data - merge static info from carParks with availability data
     const combined = carParks
       .map((park: any) => {
         const avail = availMap.get(park.CarParkID);
@@ -196,6 +196,8 @@ export class TdxApiClientImpl implements TdxApiClient {
           CarParkName: park.CarParkName,
           CarParkPosition: park.CarParkPosition,
           Address: park.Address,
+          Description: park.Description,  // 加入描述（包含特殊車位資訊）
+          FareDescription: park.FareDescription,  // 加入收費說明
         };
       })
       .filter((item: any) => item !== null);
