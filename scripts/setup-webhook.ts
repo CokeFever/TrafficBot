@@ -46,7 +46,7 @@ async function setupWebhook() {
       }),
     });
 
-    const result = await response.json();
+    const result = await response.json() as any;
 
     if (result.ok) {
       console.log('✅ Webhook set successfully!');
@@ -55,7 +55,7 @@ async function setupWebhook() {
       // Get webhook info
       const getWebhookInfoUrl = `https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo`;
       const infoResponse = await fetch(getWebhookInfoUrl);
-      const info = await infoResponse.json();
+      const info = await infoResponse.json() as any;
 
       console.log('\nWebhook Info:');
       console.log(JSON.stringify(info.result, null, 2));
@@ -79,7 +79,7 @@ async function deleteWebhook() {
       method: 'POST',
     });
 
-    const result = await response.json();
+    const result = await response.json() as any;
 
     if (result.ok) {
       console.log('✅ Webhook deleted successfully!');
@@ -98,7 +98,7 @@ async function getWebhookInfo() {
   try {
     const getWebhookInfoUrl = `https://api.telegram.org/bot${BOT_TOKEN}/getWebhookInfo`;
     const response = await fetch(getWebhookInfoUrl);
-    const result = await response.json();
+    const result = await response.json() as any;
 
     if (result.ok) {
       console.log('Webhook Info:');
