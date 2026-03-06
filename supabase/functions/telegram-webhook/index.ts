@@ -1,0 +1,664 @@
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { TdxApiClient } from '../_shared/tdx-client.ts';
+import { formatParkingResults, formatError, formatRadiusText } from '../_shared/formatters.ts';
+
+serve(async (req) => {
+  try {
+    // Verify request method
+    if (req.method !== 'POST') {
+      return new Response('Method not allowed', { status: 405 });
+    }
+
+    // Parse Telegram update
+    const update = await req.json();
+    console.log('Received update:', JSON.stringify(update));
+
+    // Initialize Supabase client
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Get bot token from environment
+    const botToken = Deno.env.get('TELEGRAM_BOT_TOKEN')!;
+
+    // Process the update
+    await processUpdate(update, supabase, botToken);
+
+    // Return success response
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    console.error('Error processing webhook:', error);
+    // Return 200 to prevent Telegram from retrying
+    return new Response(JSON.stringify({ ok: false, error: error.message }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+});
+
+async function processUpdate(update: any, supabase: any, botToken: string) {
+  // Extract message or callback query
+  const message = update.message;
+  const callbackQuery = update.callback_query;
+
+  if (message) {
+    await handleMessage(message, supabase, botToken);
+  } else if (callbackQuery) {
+    await handleCallbackQuery(callbackQuery, supabase, botToken);
+  }
+}
+
+async function handleMessage(message: any, supabase: any, botToken: string) {
+  const chatId = message.chat.id;
+  const userId = message.from.id.toString();
+  const text = message.text;
+
+  // Handle commands
+  if (text && text.startsWith('/')) {
+    const [command, ...args] = text.slice(1).split(' ');
+    await handleCommand(command, args, chatId, userId, supabase, botToken);
+    return;
+  }
+
+  // Handle location
+  if (message.location) {
+    await handleLocation(message.location, chatId, userId, supabase, botToken);
+    return;
+  }
+
+  // Handle text messages (for multi-step flows)
+  if (text) {
+    await handleTextMessage(text, chatId, userId, supabase, botToken);
+    return;
+  }
+}
+
+async function handleCommand(
+  command: string,
+  args: string[],
+  chatId: number,
+  userId: string,
+  supabase: any,
+  botToken: string
+) {
+  console.log(`Handling command: /${command}`, args);
+
+  switch (command) {
+    case 'start':
+      await sendMessage(chatId, getWelcomeMessage(), botToken);
+      break;
+    case 'help':
+      await sendMessage(chatId, getHelpMessage(), botToken);
+      break;
+    case 'parking':
+      await handleParkingCommand(args, chatId, userId, supabase, botToken);
+      break;
+    case 'traffic':
+      await handleTrafficCommand(args, chatId, userId, supabase, botToken);
+      break;
+    case 'routes':
+      await handleRoutesCommand(args, chatId, userId, supabase, botToken);
+      break;
+    case 'setup':
+      await handleSetupCommand(chatId, userId, supabase, botToken);
+      break;
+    case 'config':
+      await handleConfigCommand(chatId, userId, supabase, botToken);
+      break;
+    case 'reset':
+      await handleResetCommand(chatId, userId, supabase, botToken);
+      break;
+    default:
+      await sendMessage(chatId, '無效的指令，輸入 /help 查看可用指令', botToken);
+  }
+}
+
+async function handleParkingCommand(
+  args: string[],
+  chatId: number,
+  userId: string,
+  supabase: any,
+  botToken: string
+) {
+  // Check if radius parameter is provided
+  if (args.length > 0) {
+    const radius = parseRadius(args[0]);
+    if (radius) {
+      // Save radius to user state and request location
+      await saveUserState(userId, { command: 'parking', radius }, supabase);
+      await sendMessage(
+        chatId,
+        `請分享你的位置，我將搜尋 ${args[0]} 範圍內的停車場`,
+        botToken,
+        {
+          reply_markup: {
+            keyboard: [[{ text: '📍 分享位置', request_location: true }]],
+            resize_keyboard: true,
+            one_time_keyboard: true,
+          },
+        }
+      );
+    } else {
+      await sendMessage(chatId, '無效的半徑參數，請使用 500m、1km 或 2km', botToken);
+    }
+  } else {
+    // No parameter, show radius selection
+    await saveUserState(userId, { command: 'parking' }, supabase);
+    await sendMessage(chatId, '請選擇搜尋範圍：', botToken, {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '500m', callback_data: 'parking:radius:500' },
+            { text: '1km', callback_data: 'parking:radius:1000' },
+            { text: '2km', callback_data: 'parking:radius:2000' },
+          ],
+        ],
+      },
+    });
+  }
+}
+
+async function handleTrafficCommand(
+  args: string[],
+  chatId: number,
+  userId: string,
+  supabase: any,
+  botToken: string
+) {
+  // Similar to parking command
+  if (args.length > 0) {
+    const radius = parseRadius(args[0]);
+    if (radius) {
+      await saveUserState(userId, { command: 'traffic', radius }, supabase);
+      await sendMessage(
+        chatId,
+        `請分享你的位置，我將查詢 ${args[0]} 範圍內的車流狀況`,
+        botToken,
+        {
+          reply_markup: {
+            keyboard: [[{ text: '📍 分享位置', request_location: true }]],
+            resize_keyboard: true,
+            one_time_keyboard: true,
+          },
+        }
+      );
+    } else {
+      await sendMessage(chatId, '無效的半徑參數，請使用 500m、1km 或 2km', botToken);
+    }
+  } else {
+    await sendMessage(chatId, '🚧 車流查詢功能開發中', botToken);
+  }
+}
+
+async function handleRoutesCommand(
+  args: string[],
+  chatId: number,
+  userId: string,
+  supabase: any,
+  botToken: string
+) {
+  await sendMessage(chatId, '🚧 經常性路線管理功能開發中', botToken);
+}
+
+async function handleSetupCommand(
+  chatId: number,
+  userId: string,
+  supabase: any,
+  botToken: string
+) {
+  await saveUserState(userId, { command: 'setup', step: 'client_id' }, supabase);
+  await sendMessage(
+    chatId,
+    '⚙️ 初始設定\n\n請輸入你的 TDX API Client ID：\n\n如果還沒有 API Key，請前往 https://tdx.transportdata.tw/ 申請',
+    botToken
+  );
+}
+
+async function handleConfigCommand(
+  chatId: number,
+  userId: string,
+  supabase: any,
+  botToken: string
+) {
+  const config = await getUserConfig(userId, supabase);
+  if (config && config.tdx_api_key) {
+    await sendMessage(chatId, '✅ 你已完成設定\n\nTDX API: 已配置', botToken);
+  } else {
+    await sendMessage(chatId, '❌ 尚未完成設定\n\n請使用 /setup 進行配置', botToken);
+  }
+}
+
+async function handleResetCommand(
+  chatId: number,
+  userId: string,
+  supabase: any,
+  botToken: string
+) {
+  await sendMessage(chatId, '確定要重置所有設定嗎？', botToken, {
+    reply_markup: {
+      inline_keyboard: [[{ text: '確認重置', callback_data: 'reset:confirm' }]],
+    },
+  });
+}
+
+async function handleLocation(
+  location: any,
+  chatId: number,
+  userId: string,
+  supabase: any,
+  botToken: string
+) {
+  const state = await getUserState(userId, supabase);
+  
+  if (!state || !state.command) {
+    await sendMessage(chatId, '請先選擇功能（/parking 或 /traffic）', botToken);
+    return;
+  }
+
+  const { latitude, longitude } = location;
+
+  if (state.command === 'parking') {
+    if (state.radius) {
+      // Radius already selected, query directly
+      await handleParkingQuery(latitude, longitude, state.radius, chatId, userId, supabase, botToken);
+      await clearUserState(userId, supabase);
+    } else {
+      // Save location and ask for radius
+      await saveUserState(userId, { ...state, latitude, longitude }, supabase);
+      await sendMessage(chatId, '請選擇搜尋範圍：', botToken, {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '500m', callback_data: 'parking:radius:500' },
+              { text: '1km', callback_data: 'parking:radius:1000' },
+              { text: '2km', callback_data: 'parking:radius:2000' },
+            ],
+          ],
+        },
+      });
+    }
+  } else if (state.command === 'traffic') {
+    if (state.radius) {
+      await handleTrafficQuery(latitude, longitude, state.radius, chatId, userId, supabase, botToken);
+      await clearUserState(userId, supabase);
+    }
+  }
+}
+
+async function handleTextMessage(
+  text: string,
+  chatId: number,
+  userId: string,
+  supabase: any,
+  botToken: string
+) {
+  const state = await getUserState(userId, supabase);
+  
+  if (!state || !state.command) {
+    // Check if it's a Google Maps URL
+    if (text.includes('maps.app.goo.gl') || text.includes('google.com/maps')) {
+      await handleMapsUrl(text, chatId, userId, supabase, botToken);
+    }
+    return;
+  }
+
+  if (state.command === 'setup') {
+    await handleSetupFlow(text, state.step, chatId, userId, supabase, botToken);
+  } else if (state.command === 'parking' && !state.radius) {
+    // User might have sent a Google Maps URL
+    if (text.includes('maps.app.goo.gl') || text.includes('google.com/maps')) {
+      await handleMapsUrl(text, chatId, userId, supabase, botToken);
+    }
+  }
+}
+
+async function handleMapsUrl(
+  url: string,
+  chatId: number,
+  userId: string,
+  supabase: any,
+  botToken: string
+) {
+  const state = await getUserState(userId, supabase);
+  
+  if (!state || !state.command) {
+    await sendMessage(chatId, '請先選擇功能（/parking 或 /traffic）', botToken);
+    return;
+  }
+
+  // Get user's TDX API key for parsing
+  const config = await getUserConfig(userId, supabase);
+  if (!config || !config.tdx_api_key) {
+    await sendMessage(chatId, '❌ 請先使用 /setup 配置 TDX API Key', botToken);
+    return;
+  }
+
+  const tdxClient = new TdxApiClient(config.tdx_api_key);
+  const coords = tdxClient.parseGoogleMapsUrl(url);
+
+  if (!coords) {
+    await sendMessage(
+      chatId,
+      '❌ 無法解析 Google Maps 連結\n\n請提供包含座標的連結，或直接分享 Telegram 位置',
+      botToken
+    );
+    return;
+  }
+
+  // Process based on command
+  if (state.command === 'parking') {
+    if (state.radius) {
+      await handleParkingQuery(coords.latitude, coords.longitude, state.radius, chatId, userId, supabase, botToken);
+      await clearUserState(userId, supabase);
+    } else {
+      // Ask for radius
+      await saveUserState(userId, { ...state, latitude: coords.latitude, longitude: coords.longitude }, supabase);
+      await sendMessage(chatId, '請選擇搜尋範圍：', botToken, {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '500m', callback_data: 'parking:radius:500' },
+              { text: '1km', callback_data: 'parking:radius:1000' },
+              { text: '2km', callback_data: 'parking:radius:2000' },
+            ],
+          ],
+        },
+      });
+    }
+  } else if (state.command === 'traffic') {
+    if (state.radius) {
+      await handleTrafficQuery(coords.latitude, coords.longitude, state.radius, chatId, userId, supabase, botToken);
+      await clearUserState(userId, supabase);
+    }
+  }
+}
+
+async function handleSetupFlow(
+  text: string,
+  step: string,
+  chatId: number,
+  userId: string,
+  supabase: any,
+  botToken: string
+) {
+  if (step === 'client_id') {
+    // Save client ID and ask for client secret
+    await saveUserState(userId, { command: 'setup', step: 'client_secret', client_id: text }, supabase);
+    await sendMessage(chatId, '請輸入你的 TDX API Client Secret：', botToken);
+  } else if (step === 'client_secret') {
+    // Combine and validate API key
+    const state = await getUserState(userId, supabase);
+    const apiKey = `${state.client_id}:${text}`;
+    
+    await sendMessage(chatId, '⏳ 驗證 API Key...', botToken);
+    
+    // Validate API key (call TDX API)
+    const isValid = await validateTdxApiKey(apiKey);
+    
+    if (isValid) {
+      // Save to user config
+      await saveUserConfig(userId, { tdx_api_key: apiKey }, supabase);
+      await clearUserState(userId, supabase);
+      await sendMessage(chatId, '✅ 設定完成！\n\n你現在可以使用 /parking 查詢停車位', botToken);
+    } else {
+      await sendMessage(chatId, '❌ API Key 驗證失敗\n\n請檢查你的 Client ID 和 Client Secret 是否正確\n\n使用 /setup 重新設定', botToken);
+      await clearUserState(userId, supabase);
+    }
+  }
+}
+
+async function handleCallbackQuery(callbackQuery: any, supabase: any, botToken: string) {
+  const chatId = callbackQuery.message.chat.id;
+  const userId = callbackQuery.from.id.toString();
+  const data = callbackQuery.data;
+
+  const [action, ...params] = data.split(':');
+
+  if (action === 'parking') {
+    await handleParkingCallback(params, chatId, userId, supabase, botToken);
+  } else if (action === 'reset') {
+    await handleResetCallback(params, chatId, userId, supabase, botToken);
+  }
+
+  // Answer callback query
+  await answerCallbackQuery(callbackQuery.id, botToken);
+}
+
+async function handleParkingCallback(
+  params: string[],
+  chatId: number,
+  userId: string,
+  supabase: any,
+  botToken: string
+) {
+  if (params[0] === 'radius') {
+    const radius = parseInt(params[1]);
+    const state = await getUserState(userId, supabase);
+    
+    if (state && state.latitude && state.longitude) {
+      // Location already provided, query directly
+      await handleParkingQuery(state.latitude, state.longitude, radius, chatId, userId, supabase, botToken);
+      await clearUserState(userId, supabase);
+    } else {
+      // Save radius and ask for location
+      await saveUserState(userId, { command: 'parking', radius }, supabase);
+      await sendMessage(chatId, `請分享你的位置（搜尋範圍：${formatRadiusText(radius)}）`, botToken, {
+        reply_markup: {
+          keyboard: [[{ text: '📍 分享位置', request_location: true }]],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      });
+    }
+  }
+}
+
+async function handleResetCallback(
+  params: string[],
+  chatId: number,
+  userId: string,
+  supabase: any,
+  botToken: string
+) {
+  if (params[0] === 'confirm') {
+    await deleteUserConfig(userId, supabase);
+    await clearUserState(userId, supabase);
+    await sendMessage(chatId, '✅ 已重置所有設定\n\n使用 /setup 重新配置', botToken);
+  }
+}
+
+async function handleParkingQuery(
+  latitude: number,
+  longitude: number,
+  radius: number,
+  chatId: number,
+  userId: string,
+  supabase: any,
+  botToken: string
+) {
+  try {
+    await sendMessage(chatId, '🔍 查詢中...', botToken);
+    
+    // Get user's TDX API key
+    const config = await getUserConfig(userId, supabase);
+    if (!config || !config.tdx_api_key) {
+      await sendMessage(chatId, '❌ 請先使用 /setup 配置 TDX API Key', botToken);
+      return;
+    }
+
+    // Query parking
+    const tdxClient = new TdxApiClient(config.tdx_api_key);
+    const results = await tdxClient.queryNearbyParking(latitude, longitude, radius);
+
+    // Format and send results
+    const message = formatParkingResults(results);
+    await sendMessage(chatId, message, botToken, { parse_mode: 'Markdown' });
+  } catch (error) {
+    const errorMessage = formatError(error as Error);
+    await sendMessage(chatId, errorMessage, botToken);
+  }
+}
+
+async function handleTrafficQuery(
+  latitude: number,
+  longitude: number,
+  radius: number,
+  chatId: number,
+  userId: string,
+  supabase: any,
+  botToken: string
+) {
+  await sendMessage(chatId, '🔍 查詢中...', botToken);
+  await sendMessage(chatId, '🚧 車流查詢功能開發中', botToken);
+}
+
+// Helper functions
+
+function parseRadius(radiusStr: string): number | null {
+  const match = radiusStr.match(/^(\d+)(m|km)$/);
+  if (!match) return null;
+  
+  const value = parseInt(match[1]);
+  const unit = match[2];
+  
+  if (unit === 'km') {
+    return value * 1000;
+  }
+  return value;
+}
+
+async function sendMessage(chatId: number, text: string, botToken: string, options?: any) {
+  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+  const body = {
+    chat_id: chatId,
+    text,
+    ...options,
+  };
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    console.error('Failed to send message:', await response.text());
+  }
+}
+
+async function answerCallbackQuery(callbackQueryId: string, botToken: string) {
+  const url = `https://api.telegram.org/bot${botToken}/answerCallbackQuery`;
+  await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ callback_query_id: callbackQueryId }),
+  });
+}
+
+async function saveUserState(userId: string, state: any, supabase: any) {
+  await supabase
+    .from('user_states')
+    .upsert({ user_id: userId, state, updated_at: new Date().toISOString() });
+}
+
+async function getUserState(userId: string, supabase: any) {
+  const { data } = await supabase
+    .from('user_states')
+    .select('state')
+    .eq('user_id', userId)
+    .single();
+  return data?.state;
+}
+
+async function clearUserState(userId: string, supabase: any) {
+  await supabase.from('user_states').delete().eq('user_id', userId);
+}
+
+async function saveUserConfig(userId: string, config: any, supabase: any) {
+  await supabase
+    .from('user_configs')
+    .upsert({ user_id: userId, ...config, updated_at: new Date().toISOString() });
+}
+
+async function getUserConfig(userId: string, supabase: any) {
+  const { data } = await supabase
+    .from('user_configs')
+    .select('*')
+    .eq('user_id', userId)
+    .single();
+  return data;
+}
+
+async function deleteUserConfig(userId: string, supabase: any) {
+  await supabase.from('user_configs').delete().eq('user_id', userId);
+}
+
+async function validateTdxApiKey(apiKey: string): Promise<boolean> {
+  try {
+    // Get access token
+    const [clientId, clientSecret] = apiKey.split(':');
+    const tokenUrl = 'https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token';
+    
+    const tokenResponse = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: clientId,
+        client_secret: clientSecret,
+      }),
+    });
+
+    if (!tokenResponse.ok) {
+      return false;
+    }
+
+    const tokenData = await tokenResponse.json();
+    return !!tokenData.access_token;
+  } catch (error) {
+    console.error('Error validating API key:', error);
+    return false;
+  }
+}
+
+function getWelcomeMessage(): string {
+  return `
+🚗 歡迎使用停車位查詢 Bot！
+
+✅ 目前可用功能：
+• 停車位搜尋
+
+🚧 開發中功能：
+• 車流查詢
+• 經常性路線管理
+• 主動推播通知
+
+請先使用 /setup 完成初始配置
+輸入 /help 查看詳細說明
+  `.trim();
+}
+
+function getHelpMessage(): string {
+  return `
+📖 指令說明
+
+✅ 可用功能：
+/parking [半徑] - 搜尋附近停車位
+  例如：/parking 500m 或 /parking 1km
+
+🚧 開發中功能：
+/traffic [半徑] - 查詢附近車流（開發中）
+/routes [半徑] - 管理經常性路線（開發中）
+
+⚙️ 設定：
+/setup - 初始配置
+/config - 查看當前配置
+/reset - 重置配置
+
+需要協助？請參考使用手冊
+  `.trim();
+}

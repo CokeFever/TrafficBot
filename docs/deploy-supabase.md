@@ -1,551 +1,289 @@
-# Supabase 部署指南
+# Supabase Edge Functions 部署指南
 
-本指南將協助你從零開始部署 Telegram Parking Bot 到 Supabase。
+本指南說明如何將 Telegram Parking Bot 部署到 Supabase Edge Functions。
 
-## 目錄
+## 架構說明
 
-1. [前置準備](#前置準備)
-2. [建立 Supabase 專案](#建立-supabase-專案)
-3. [設定資料庫](#設定資料庫)
-4. [取得連線資訊](#取得連線資訊)
-5. [本地開發設定](#本地開發設定)
-6. [部署 Bot](#部署-bot)
-7. [設定定時任務（可選）](#設定定時任務可選)
-8. [測試驗證](#測試驗證)
-9. [常見問題](#常見問題)
+- **通訊方式**: Webhook（Telegram → Supabase Edge Function）
+- **後端**: Supabase Edge Functions（Deno runtime）
+- **資料庫**: Supabase PostgreSQL
+- **優點**: 
+  - 完全免費（在免費額度內）
+  - 無需維護伺服器
+  - 自動擴展
+  - 即時回應
 
----
+## 前置需求
 
-## 前置準備
+1. Supabase 帳號（已有）
+2. Supabase CLI
+3. Telegram Bot Token
+4. TDX API Client ID 和 Client Secret
 
-### 1. 註冊必要帳號
+## 部署步驟
 
-- **Supabase 帳號**: https://supabase.com/
-- **Telegram Bot**: 透過 [@BotFather](https://t.me/botfather) 建立
-- **TDX API 金鑰**: https://tdx.transportdata.tw/
+### 1. 安裝 Supabase CLI
 
-### 2. 安裝必要工具
+**Windows (PowerShell):**
+```powershell
+scoop install supabase
+```
 
+或使用 npm:
 ```bash
-# 安裝 Node.js (18+)
-# 從 https://nodejs.org/ 下載安裝
-
-# 驗證安裝
-node --version
-npm --version
-
-# 安裝 Supabase CLI (可選，用於本地開發)
 npm install -g supabase
 ```
 
----
-
-## 建立 Supabase 專案
-
-### 步驟 1: 註冊 Supabase
-
-1. 前往 https://supabase.com/
-2. 點擊 "Start your project"
-3. 使用 GitHub 或 Email 註冊/登入
-
-### 步驟 2: 建立新專案
-
-1. 登入後，點擊 "New Project"
-2. 填寫專案資訊：
-   - **Name**: `telegram-parking-bot`（或你喜歡的名稱）
-   - **Database Password**: 設定一個強密碼（請記住！）
-   - **Region**: 選擇 `Northeast Asia (Tokyo)` 或最近的區域
-   - **Pricing Plan**: 選擇 `Free` 方案
-
-3. 點擊 "Create new project"
-4. 等待 2-3 分鐘讓專案初始化完成
-
----
-
-## 設定資料庫
-
-### 步驟 1: 開啟 SQL Editor
-
-1. 在 Supabase Dashboard 左側選單點擊 "SQL Editor"
-2. 點擊 "New query"
-
-### 步驟 2: 執行資料庫 Schema
-
-複製 `supabase/migrations/001_initial_schema.sql` 的內容並執行：
-
-```sql
--- 使用者配置表
-CREATE TABLE user_configs (
-  user_id TEXT PRIMARY KEY,
-  tdx_api_key TEXT NOT NULL,
-  backend_config JSONB,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
-
--- 經常性路線表
-CREATE TABLE routine_routes (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  origin JSONB NOT NULL,
-  destination JSONB NOT NULL,
-  notification_preferences JSONB,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
-  FOREIGN KEY (user_id) REFERENCES user_configs(user_id) ON DELETE CASCADE
-);
-
--- 通知記錄表
-CREATE TABLE notification_records (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  route_id UUID NOT NULL,
-  user_id TEXT NOT NULL,
-  traffic_status TEXT,
-  event_ids TEXT[],
-  sent_at TIMESTAMP DEFAULT NOW(),
-  FOREIGN KEY (route_id) REFERENCES routine_routes(id) ON DELETE CASCADE
-);
-
--- 快取表
-CREATE TABLE cache_entries (
-  key TEXT PRIMARY KEY,
-  value JSONB NOT NULL,
-  expires_at TIMESTAMP NOT NULL
-);
-
--- Key-Value Store 表（用於 DataStore）
-CREATE TABLE key_value_store (
-  key TEXT PRIMARY KEY,
-  value JSONB NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
-
--- 索引
-CREATE INDEX idx_routes_user_id ON routine_routes(user_id);
-CREATE INDEX idx_notifications_route_id ON notification_records(route_id);
-CREATE INDEX idx_notifications_sent_at ON notification_records(sent_at);
-CREATE INDEX idx_cache_expires_at ON cache_entries(expires_at);
-CREATE INDEX idx_kv_store_key ON key_value_store(key);
-
--- 自動更新 updated_at 的觸發器
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER update_user_configs_updated_at
-  BEFORE UPDATE ON user_configs
-  FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_routine_routes_updated_at
-  BEFORE UPDATE ON routine_routes
-  FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_kv_store_updated_at
-  BEFORE UPDATE ON key_value_store
-  FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
+**macOS:**
+```bash
+brew install supabase/tap/supabase
 ```
 
-3. 點擊 "Run" 執行 SQL
-4. 確認顯示 "Success. No rows returned"
+**Linux:**
+```bash
+brew install supabase/tap/supabase
+```
 
-### 步驟 3: 驗證資料表
-
-1. 在左側選單點擊 "Table Editor"
-2. 確認看到以下資料表：
-   - `user_configs`
-   - `routine_routes`
-   - `notification_records`
-   - `cache_entries`
-   - `key_value_store`
-
----
-
-## 取得連線資訊
-
-### 步驟 1: 取得 API 金鑰
-
-1. 在 Supabase Dashboard 點擊左下角的 "Project Settings"（齒輪圖示）
-2. 點擊 "API" 分頁
-3. 複製以下資訊：
-   - **Project URL**: `https://xxxxx.supabase.co`
-   - **anon public key**: `eyJhbGc...` (很長的字串)
-
-### 步驟 2: 取得資料庫連線字串
-
-1. 在 "Project Settings" 中點擊 "Database" 分頁
-2. 找到 "Connection string" 區塊
-3. 選擇 "URI" 格式
-4. 複製連線字串（格式如下）：
-   ```
-   postgresql://postgres:[YOUR-PASSWORD]@db.xxxxx.supabase.co:5432/postgres
-   ```
-5. 將 `[YOUR-PASSWORD]` 替換為你建立專案時設定的密碼
-
----
-
-## 本地開發設定
-
-### 步驟 1: 複製專案
+### 2. 登入 Supabase
 
 ```bash
-# 如果還沒有複製專案
-git clone <your-repo-url>
-cd telegram-parking-bot
-
-# 安裝依賴
-npm install
+supabase login
 ```
 
-### 步驟 2: 設定環境變數
+這會打開瀏覽器，請登入你的 Supabase 帳號。
 
-1. 複製環境變數範本：
-```bash
-cp .env.example .env
-```
-
-2. 編輯 `.env` 檔案：
-
-```env
-# Telegram Bot Token (從 @BotFather 取得)
-TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
-
-# Supabase 設定
-SUPABASE_URL=https://xxxxx.supabase.co
-SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-
-# 加密金鑰（用於加密使用者的 TDX API 金鑰）
-# 產生方式：node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-ENCRYPTION_KEY=your_random_32_byte_hex_string
-
-# 可選：監控任務設定
-MONITORING_JOB_TOKEN=your_monitoring_token
-MONITORING_JOB_ENDPOINT=http://localhost:3000/monitoring
-```
-
-### 步驟 3: 產生加密金鑰
-
-在終端機執行：
+### 3. 連結專案
 
 ```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+supabase link --project-ref your-project-ref
 ```
 
-複製輸出的字串到 `.env` 的 `ENCRYPTION_KEY`
+你的 project-ref 可以從 Supabase URL 取得：
+- URL: `https://yqpigatgtxvytmkxumxu.supabase.co`
+- Project ref: `yqpigatgtxvytmkxumxu`
 
-### 步驟 4: 建置專案
+### 4. 執行資料庫遷移
 
 ```bash
-# 編譯 TypeScript
-npm run build
-
-# 檢查是否有錯誤
-npm run lint
+supabase db push
 ```
 
----
+這會建立必要的資料表（user_configs, user_states, routes, notifications）。
 
-## 部署 Bot
+### 5. 設定環境變數
 
-### 方案 A: 本地執行（開發/測試）
+在 Supabase Dashboard 中設定 Edge Function 的環境變數：
+
+1. 前往 https://supabase.com/dashboard/project/yqpigatgtxvytmkxumxu/settings/functions
+2. 點擊 "Add secret"
+3. 新增以下變數：
+   - `TELEGRAM_BOT_TOKEN`: 你的 Bot Token
+   - `SUPABASE_URL`: 你的 Supabase URL
+   - `SUPABASE_SERVICE_ROLE_KEY`: 你的 Service Role Key（在 Settings > API 中找到）
+
+### 6. 部署 Edge Function
 
 ```bash
-# 開發模式（自動重啟）
-npm run dev
-
-# 或生產模式
-npm start
+supabase functions deploy telegram-webhook
 ```
 
-看到 "Bot is running!" 表示成功啟動。
-
-### 方案 B: 部署到雲端服務
-
-#### 選項 1: Railway.app（推薦，免費額度）
-
-1. 前往 https://railway.app/
-2. 使用 GitHub 登入
-3. 點擊 "New Project" → "Deploy from GitHub repo"
-4. 選擇你的 repository
-5. 設定環境變數（在 Variables 分頁）：
-   - `TELEGRAM_BOT_TOKEN`
-   - `SUPABASE_URL`
-   - `SUPABASE_KEY`
-   - `ENCRYPTION_KEY`
-6. Railway 會自動偵測 Node.js 並部署
-
-#### 選項 2: Heroku
-
-1. 安裝 Heroku CLI
-2. 登入並建立應用：
-```bash
-heroku login
-heroku create telegram-parking-bot
+部署完成後，你會看到 Function URL：
+```
+https://yqpigatgtxvytmkxumxu.supabase.co/functions/v1/telegram-webhook
 ```
 
-3. 設定環境變數：
-```bash
-heroku config:set TELEGRAM_BOT_TOKEN=your_token
-heroku config:set SUPABASE_URL=your_url
-heroku config:set SUPABASE_KEY=your_key
-heroku config:set ENCRYPTION_KEY=your_encryption_key
-```
+### 7. 設定 Telegram Webhook
 
-4. 部署：
-```bash
-git push heroku main
-```
-
-#### 選項 3: VPS (Ubuntu)
+使用我們提供的腳本：
 
 ```bash
-# 1. 連線到 VPS
-ssh user@your-server-ip
-
-# 2. 安裝 Node.js
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt-get install -y nodejs
-
-# 3. 安裝 PM2（程序管理器）
-sudo npm install -g pm2
-
-# 4. 複製專案
-git clone <your-repo-url>
-cd telegram-parking-bot
-
-# 5. 安裝依賴並建置
-npm install
-npm run build
-
-# 6. 設定環境變數
-nano .env
-# 貼上你的環境變數
-
-# 7. 使用 PM2 啟動
-pm2 start dist/index.js --name telegram-parking-bot
-
-# 8. 設定開機自動啟動
-pm2 startup
-pm2 save
-
-# 9. 查看日誌
-pm2 logs telegram-parking-bot
+npm run setup-webhook
 ```
 
----
+或手動設定：
 
-## 設定定時任務（可選）
+```bash
+curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://yqpigatgtxvytmkxumxu.supabase.co/functions/v1/telegram-webhook",
+    "allowed_updates": ["message", "callback_query"]
+  }'
+```
 
-如果要啟用經常性路線的主動通知功能，需要設定定時任務。
+### 8. 驗證部署
 
-### 注意事項
+檢查 Webhook 狀態：
 
-⚠️ **Supabase 免費方案限制**：
-- pg_cron 需要 Pro 方案（每月 $25 USD）
-- 如果使用免費方案，可以使用外部 cron 服務（見下方替代方案）
+```bash
+npm run webhook:info
+```
 
-### 方案 A: 使用 Supabase pg_cron（需 Pro 方案）
+或：
 
-1. 升級到 Pro 方案
-2. 在 SQL Editor 執行 `supabase/migrations/002_setup_cron.sql`
-3. 設定環境變數（在 Supabase Dashboard → Project Settings → API）
+```bash
+curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
+```
 
-### 方案 B: 使用外部 Cron 服務（免費）
-
-#### 使用 cron-job.org
-
-1. 前往 https://cron-job.org/
-2. 註冊免費帳號
-3. 建立新的 Cron Job：
-   - **Title**: Parking Bot Monitoring
-   - **URL**: `https://your-bot-url.com/monitoring`（你的 Bot API endpoint）
-   - **Schedule**: `*/15 * * * *`（每 15 分鐘）
-4. 儲存並啟用
-
-#### 在 Bot 中新增 Monitoring Endpoint
-
-在 `src/index.ts` 中新增：
-
-```typescript
-// 新增 HTTP server 用於接收 cron 請求
-import express from 'express';
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.post('/monitoring', async (req, res) => {
-  try {
-    await monitoringJob.execute();
-    res.json({ success: true, message: 'Monitoring task completed' });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+應該會看到：
+```json
+{
+  "ok": true,
+  "result": {
+    "url": "https://yqpigatgtxvytmkxumxu.supabase.co/functions/v1/telegram-webhook",
+    "has_custom_certificate": false,
+    "pending_update_count": 0
   }
-});
-
-app.listen(PORT, () => {
-  console.log(`HTTP server listening on port ${PORT}`);
-});
+}
 ```
 
----
+### 9. 測試 Bot
 
-## 測試驗證
+在 Telegram 中測試 @ixoTraffic_bot：
+1. 發送 `/start`
+2. 發送 `/setup` 配置 TDX API Key
+3. 測試 `/parking 500m` 功能
 
-### 1. 測試 Bot 基本功能
+## 查看日誌
 
-1. 在 Telegram 搜尋你的 Bot（使用 @BotFather 提供的 username）
-2. 發送 `/start`
-3. 應該看到歡迎訊息
+### 即時日誌
 
-### 2. 測試配置流程
+```bash
+supabase functions logs telegram-webhook --follow
+```
 
-1. 發送 `/setup`
-2. 輸入你的 TDX API 金鑰
-3. 輸入 Supabase 連線字串
-4. 確認配置成功
+### 歷史日誌
 
-### 3. 測試停車位搜尋
+```bash
+supabase functions logs telegram-webhook
+```
 
-1. 發送 `/parking`
-2. 分享位置或提供 Google Maps 連結
-3. 選擇搜尋半徑
-4. 確認能看到停車場資訊
+### 在 Dashboard 查看
 
-### 4. 驗證資料庫
+前往 https://supabase.com/dashboard/project/yqpigatgtxvytmkxumxu/logs/edge-functions
 
-1. 在 Supabase Dashboard → Table Editor
-2. 查看 `user_configs` 表
-3. 應該能看到你的使用者配置記錄
+## 更新部署
 
----
+當你修改代碼後：
 
-## 常見問題
+```bash
+# 1. 重新部署 Function
+supabase functions deploy telegram-webhook
 
-### Q1: Bot 無法啟動
+# 2. 如果有資料庫變更
+supabase db push
+```
 
-**檢查清單**：
-- 確認 `TELEGRAM_BOT_TOKEN` 正確
-- 確認 `SUPABASE_URL` 和 `SUPABASE_KEY` 正確
-- 檢查網路連線
-- 查看錯誤日誌：`pm2 logs` 或 `npm run dev`
+## 本地測試
 
-### Q2: 資料庫連線失敗
+### 啟動本地 Supabase
 
-**解決方法**：
-- 確認 Supabase 專案狀態正常（Dashboard 顯示綠色）
-- 檢查資料庫密碼是否正確
-- 確認防火牆沒有阻擋連線
+```bash
+supabase start
+```
 
-### Q3: TDX API 呼叫失敗
+### 本地運行 Edge Function
 
-**可能原因**：
-- API 金鑰無效或過期
-- 超過 API 呼叫限制
-- TDX 服務暫時無法使用
+```bash
+supabase functions serve telegram-webhook --env-file .env
+```
 
-**解決方法**：
-- 重新申請 API 金鑰
-- 檢查 TDX 平台狀態
-- 查看 API 使用量限制
+### 使用 ngrok 測試 Webhook
 
-### Q4: 加密金鑰錯誤
+```bash
+# 1. 安裝 ngrok
+# 2. 啟動 ngrok
+ngrok http 54321
 
-**症狀**：無法解密使用者的 API 金鑰
+# 3. 設定 Webhook 到 ngrok URL
+npm run webhook:set
+# 手動修改 URL 為: https://your-ngrok-url.ngrok.io/functions/v1/telegram-webhook
+```
 
-**解決方法**：
-- 確認 `ENCRYPTION_KEY` 在所有環境中一致
-- 如果更改了加密金鑰，需要重新設定所有使用者的配置
+## 監控和除錯
 
-### Q5: 監控任務沒有執行
+### 查看 Function 狀態
 
-**檢查清單**：
-- 確認 cron job 已正確設定
-- 檢查 Bot 的 HTTP endpoint 是否可訪問
-- 查看監控任務日誌
+```bash
+supabase functions list
+```
 
----
+### 查看資料庫狀態
 
-## 效能優化建議
+```bash
+supabase db status
+```
 
-### 1. 資料庫索引
-
-已在 migration 中建立必要索引，如需額外優化：
+### 檢查資料表
 
 ```sql
--- 為常用查詢建立索引
-CREATE INDEX idx_cache_key_expires ON cache_entries(key, expires_at);
-CREATE INDEX idx_routes_user_notifications ON routine_routes(user_id, notification_preferences);
+-- 查看 user configs
+SELECT * FROM user_configs;
+
+-- 查看 user states
+SELECT * FROM user_states;
+
+-- 查看 routes
+SELECT * FROM routes;
 ```
 
-### 2. 快取策略
+## 費用說明
 
-- TDX API 回應快取 5 分鐘
-- 考慮增加快取時間以減少 API 呼叫
+**Supabase 免費方案包含：**
+- 500MB 資料庫空間
+- 2GB 檔案儲存
+- 50MB 檔案上傳限制
+- 500K Edge Function 請求/月
+- 2GB Edge Function 頻寬/月
 
-### 3. 連線池設定
+**你的 Bot 使用：**
+- 資料庫：< 10MB（user configs, states, routes）
+- Edge Function 請求：取決於使用量
+- 預估：每天 100 次請求 = 3000 次/月（遠低於限制）
 
-在 `src/services/supabase-store.ts` 中調整連線池大小：
+**結論：** 完全在免費額度內，不會產生費用。
 
-```typescript
-const supabase = createClient(url, key, {
-  db: {
-    schema: 'public',
-  },
-  auth: {
-    persistSession: false,
-  },
-  global: {
-    headers: { 'x-connection-pool-size': '10' },
-  },
-});
-```
+## 故障排除
 
----
+### Webhook 設定失敗
 
-## 安全性建議
+1. 檢查 Bot Token 是否正確
+2. 確認 Edge Function 已部署
+3. 檢查 Function URL 是否正確
 
-1. **定期更新依賴套件**：
+### Bot 無回應
+
+1. 查看 Edge Function 日誌：`supabase functions logs telegram-webhook`
+2. 檢查環境變數是否設定正確
+3. 確認 Webhook 狀態：`npm run webhook:info`
+
+### 資料庫連線失敗
+
+1. 檢查 SUPABASE_SERVICE_ROLE_KEY 是否正確
+2. 確認資料表已建立：`supabase db status`
+3. 檢查資料庫遷移：`supabase db push`
+
+### Function 執行逾時
+
+Edge Functions 有 150 秒執行時間限制。如果超時：
+1. 優化查詢邏輯
+2. 減少 API 呼叫次數
+3. 使用快取
+
+## 切換回 Polling 模式（如果需要）
+
+如果想切回 Polling 模式：
+
 ```bash
-npm audit
-npm update
+# 1. 刪除 Webhook
+npm run webhook:delete
+
+# 2. 部署到 Fly.io 或 Render
+# 參考 docs/deploy-fly.md
 ```
-
-2. **使用環境變數**：
-   - 絕不將敏感資訊提交到 Git
-   - 使用 `.gitignore` 排除 `.env`
-
-3. **限制 API 存取**：
-   - 在 Supabase 設定 Row Level Security (RLS)
-   - 限制 API 金鑰的使用範圍
-
-4. **監控異常活動**：
-   - 定期檢查 Supabase 日誌
-   - 設定異常警報
-
----
-
-## 下一步
-
-- 📖 閱讀 [使用者手冊](user-guide.md)
-- 🔧 查看 [TDX API 申請指南](tdx-api-guide.md)
-- 🐛 回報問題到 GitHub Issues
-- 💡 提出功能建議
-
----
 
 ## 支援
 
-如有問題，請：
-1. 查看本文件的常見問題
-2. 搜尋 GitHub Issues
-3. 建立新的 Issue 並提供詳細資訊
-
-祝你部署順利！🚀
+- Supabase 文檔：https://supabase.com/docs/guides/functions
+- Telegram Bot API：https://core.telegram.org/bots/api
+- 問題回報：在專案 GitHub Issues

@@ -28,11 +28,12 @@
 #### Acceptance Criteria
 
 1. WHEN User 分享當前位置，THE Bot SHALL 接收並解析 Location 座標
-2. WHEN User 選擇 Search_Radius（500m、1km、2km），THE Bot SHALL 使用選定的半徑進行搜尋
-3. WHEN 搜尋請求發送，THE Bot SHALL 呼叫 TDX_API 查詢範圍內的 Parking_Facility
-4. THE Bot SHALL 回傳停車場和路邊停車的資訊
-5. WHEN TDX_API 回傳結果，THE Bot SHALL 顯示每個 Parking_Facility 的名稱、距離、可用車位數及收費資訊
-6. IF TDX_API 無法回應，THEN THE Bot SHALL 顯示錯誤訊息並建議稍後重試
+2. WHEN User 執行 /parking 指令不帶參數，THE Bot SHALL 提示選擇 Search_Radius（500m、1km、2km）
+3. WHEN User 執行 /parking 指令帶參數（例如 /parking 500m），THE Bot SHALL 直接使用指定的半徑並要求提供位置
+4. WHEN 搜尋請求發送，THE Bot SHALL 呼叫 TDX_API 查詢範圍內的 Parking_Facility
+5. THE Bot SHALL 回傳停車場和路邊停車的資訊
+6. WHEN TDX_API 回傳結果，THE Bot SHALL 顯示每個 Parking_Facility 的名稱、距離、可用車位數及收費資訊
+7. IF TDX_API 無法回應，THEN THE Bot SHALL 顯示錯誤訊息並建議稍後重試
 
 ### Requirement 2: 基於目的地的停車位搜尋
 
@@ -41,12 +42,13 @@
 #### Acceptance Criteria
 
 1. WHEN User 提供目的地 Location（透過 Telegram Location 或 Google Maps 連結），THE Bot SHALL 解析目的地座標
-2. WHEN User 選擇 Search_Radius（500m、1km、2km），THE Bot SHALL 使用選定的半徑進行搜尋
-3. THE Bot SHALL 呼叫 TDX_API 查詢目的地範圍內的 Parking_Facility
-4. THE Bot SHALL 回傳停車場和路邊停車的資訊
-5. WHEN 結果顯示時，THE Bot SHALL 提供每個 Parking_Facility 到目的地的距離
-6. WHERE User 提供 Google Maps 連結，THE Bot SHALL 使用 Maps_API 解析目的地座標
-7. IF 目的地座標無法解析，THEN THE Bot SHALL 提示 User 重新提供有效的位置資訊
+2. WHEN User 執行 /parking 指令不帶參數，THE Bot SHALL 提示選擇 Search_Radius（500m、1km、2km）
+3. WHEN User 執行 /parking 指令帶參數（例如 /parking 1km），THE Bot SHALL 直接使用指定的半徑並要求提供位置
+4. THE Bot SHALL 呼叫 TDX_API 查詢目的地範圍內的 Parking_Facility
+5. THE Bot SHALL 回傳停車場和路邊停車的資訊
+6. WHEN 結果顯示時，THE Bot SHALL 提供每個 Parking_Facility 到目的地的距離
+7. WHERE User 提供 Google Maps 連結，THE Bot SHALL 使用 Maps_API 解析目的地座標
+8. IF 目的地座標無法解析，THEN THE Bot SHALL 提示 User 重新提供有效的位置資訊
 
 ### Requirement 3: 路線車流查詢
 
@@ -54,13 +56,12 @@
 
 #### Acceptance Criteria
 
-1. WHEN User 提供 Google Maps 路線規劃 URL，THE Bot SHALL 解析路線資訊
-2. THE Bot SHALL 呼叫 TDX_API 查詢路線沿途的車流資訊
-3. THE Bot SHALL 顯示路線的整體車流狀況（順暢、壅塞、嚴重壅塞）
-4. WHEN 路線上存在 Traffic_Event，THE Bot SHALL 顯示事故位置、類型及預估影響時間
-5. THE Bot SHALL 提供路線預估行駛時間
-6. IF 路線解析失敗，THEN THE Bot SHALL 提示 User 提供有效的 Google Maps 路線 URL
-7. IF TDX_API 無車流資料，THEN THE Bot SHALL 通知 User 該路線暫無即時資訊
+1. WHEN User 執行 /traffic 指令不帶參數，THE Bot SHALL 提示選擇 Search_Radius（500m、1km、2km）後要求提供位置
+2. WHEN User 執行 /traffic 指令帶參數（例如 /traffic 2km），THE Bot SHALL 直接使用指定的半徑並要求提供位置
+3. WHEN User 提供位置，THE Bot SHALL 呼叫 TDX_API 查詢該位置附近的車流資訊
+4. THE Bot SHALL 顯示附近道路的整體車流狀況（順暢、壅塞、嚴重壅塞）
+5. WHEN 附近存在 Traffic_Event，THE Bot SHALL 顯示事故位置、類型及預估影響時間
+6. IF TDX_API 無車流資料，THEN THE Bot SHALL 通知 User 該區域暫無即時資訊
 
 ### Requirement 4: 經常性路線設定
 
@@ -68,13 +69,15 @@
 
 #### Acceptance Criteria
 
-1. THE Bot SHALL 提供新增 Routine_Route 的功能
-2. WHEN User 新增 Routine_Route，THE Bot SHALL 儲存路線的起點、終點及名稱
-3. THE Bot SHALL 允許 User 查看已設定的所有 Routine_Route
-4. THE Bot SHALL 允許 User 刪除特定的 Routine_Route
-5. THE Bot SHALL 允許 User 編輯 Routine_Route 的名稱
-6. WHEN User 設定 Routine_Route，THE Bot SHALL 確認設定成功並顯示路線摘要
-7. THE Backend_Service SHALL 持久化儲存 User 的 Routine_Route 設定
+1. WHEN User 執行 /routes 指令不帶參數，THE Bot SHALL 顯示路線管理選單
+2. WHEN User 執行 /routes 指令帶參數（例如 /routes 500m），THE Bot SHALL 直接使用指定的半徑進行路線相關操作
+3. THE Bot SHALL 提供新增 Routine_Route 的功能
+4. WHEN User 新增 Routine_Route，THE Bot SHALL 儲存路線的起點、終點及名稱
+5. THE Bot SHALL 允許 User 查看已設定的所有 Routine_Route
+6. THE Bot SHALL 允許 User 刪除特定的 Routine_Route
+7. THE Bot SHALL 允許 User 編輯 Routine_Route 的名稱
+8. WHEN User 設定 Routine_Route，THE Bot SHALL 確認設定成功並顯示路線摘要
+9. THE Backend_Service SHALL 持久化儲存 User 的 Routine_Route 設定
 
 ### Requirement 5: 主動推播通知
 
@@ -135,16 +138,18 @@
 
 ### Requirement 9: 後端服務與資料持久化
 
-**User Story:** 作為系統，我需要後端服務來處理定時任務和資料儲存，以便支援主動通知功能。
+**User Story:** 作為系統，我需要後端服務來處理 Webhook 請求和資料儲存，以便支援主動通知功能。
 
 #### Acceptance Criteria
 
-1. THE Backend_Service SHALL 儲存 User 的 Routine_Route 設定
-2. THE Backend_Service SHALL 儲存 User 的通知偏好設定
-3. THE Backend_Service SHALL 每 15 分鐘執行一次 Routine_Route 監控任務
-4. THE Backend_Service SHALL 使用 PostgreSQL 儲存資料並透過 Edge Functions 執行定時任務
-5. THE Backend_Service SHALL 記錄已發送的通知以避免重複推播
-6. IF Backend_Service 執行失敗，THEN THE Backend_Service SHALL 記錄錯誤日誌並在下次執行時重試
+1. THE Backend_Service SHALL 部署為 Supabase Edge Function
+2. THE Backend_Service SHALL 提供 Webhook endpoint 接收 Telegram 更新
+3. THE Backend_Service SHALL 儲存 User 的 Routine_Route 設定
+4. THE Backend_Service SHALL 儲存 User 的通知偏好設定
+5. THE Backend_Service SHALL 每 15 分鐘執行一次 Routine_Route 監控任務
+6. THE Backend_Service SHALL 使用 PostgreSQL 儲存資料
+7. THE Backend_Service SHALL 記錄已發送的通知以避免重複推播
+8. IF Backend_Service 執行失敗，THEN THE Backend_Service SHALL 記錄錯誤日誌並在下次執行時重試
 
 ### Requirement 10: 錯誤處理與可靠性
 
@@ -166,12 +171,14 @@
 
 #### Acceptance Criteria
 
-1. THE Backend_Service SHALL 確保資料庫大小在免費方案限制內（500MB）
-2. THE Bot SHALL 快取 TDX_API 回應最多 5 分鐘以減少 API 呼叫次數
-3. THE Notification_Service SHALL 限制每個 User 最多設定 5 條 Routine_Route
-4. THE Backend_Service SHALL 自動清理 30 天前的歷史通知記錄
-5. THE Bot SHALL 監控 API 使用量並在接近限制時發出警告
-6. THE Bot SHALL 使用 Webhook 而非 Polling 以減少資源消耗
+1. THE Backend_Service SHALL 部署為 Supabase Edge Function 以利用免費額度
+2. THE Backend_Service SHALL 確保資料庫大小在免費方案限制內（500MB）
+3. THE Bot SHALL 快取 TDX_API 回應最多 5 分鐘以減少 API 呼叫次數
+4. THE Notification_Service SHALL 限制每個 User 最多設定 5 條 Routine_Route
+5. THE Backend_Service SHALL 自動清理 30 天前的歷史通知記錄
+6. THE Bot SHALL 監控 API 使用量並在接近限制時發出警告
+7. THE Bot SHALL 使用 Webhook 而非 Polling 以減少資源消耗
+8. THE Backend_Service SHALL 在 Supabase Edge Function 的執行時間限制內完成處理（< 150 秒）
 
 ### Requirement 12: 資料解析與轉換
 
@@ -210,4 +217,19 @@
 15. THE Bot SHALL 提供 /reset 指令讓 User 重新配置所有設定
 16. THE Bot SHALL 加密儲存 User 的 TDX_API 金鑰和 Backend 連線資訊
 17. WHERE User 使用共享 Backend，THE Backend_Service SHALL 隔離不同 User 的資料和 API 金鑰
+
+### Requirement 14: Webhook 整合
+
+**User Story:** 作為系統，我需要使用 Webhook 接收 Telegram 更新，以便提供即時回應並減少資源消耗。
+
+#### Acceptance Criteria
+
+1. THE Backend_Service SHALL 提供公開的 HTTPS Webhook endpoint
+2. WHEN Telegram 發送更新，THE Backend_Service SHALL 接收並驗證請求來源
+3. THE Backend_Service SHALL 在 Supabase Edge Function 中處理 Telegram 更新
+4. THE Bot SHALL 在部署時自動設定 Telegram Webhook URL
+5. THE Backend_Service SHALL 在 10 秒內回應 Telegram Webhook 請求
+6. IF Webhook 處理失敗，THE Backend_Service SHALL 記錄錯誤並回傳 HTTP 200 以避免 Telegram 重試
+7. THE Backend_Service SHALL 驗證 Telegram Webhook 請求的 secret token
+8. WHEN Webhook URL 變更，THE Bot SHALL 提供指令更新 Telegram Webhook 設定
 

@@ -12,7 +12,12 @@
     "test:coverage": "jest --coverage",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
-    "format": "prettier --write \"src/**/*.ts\""
+    "format": "prettier --write \"src/**/*.ts\"",
+    "setup-webhook": "ts-node scripts/setup-webhook.ts",
+    "webhook:set": "ts-node scripts/setup-webhook.ts set",
+    "webhook:delete": "ts-node scripts/setup-webhook.ts delete",
+    "webhook:info": "ts-node scripts/setup-webhook.ts info",
+    "test-webhook": "ts-node scripts/test-webhook.ts"
   },
   "keywords": ["telegram", "bot", "parking", "traffic", "taiwan", "tdx"],
   "author": "",
