@@ -35,9 +35,10 @@ jobs:
           supabase db push
           
           # Deploy Edge Functions
-          supabase functions deploy telegram-webhook
+          supabase functions deploy telegram-webhook --no-verify-jwt
 
       - name: Deployment Summary
         run: |
           echo "✅ Deployment completed successfully!"
           echo "Function URL: https://yqpigatgtxvytmkxumxu.supabase.co/functions/v1/telegram-webhook"
+          echo "⚠️  Note: JWT verification is disabled for this function"

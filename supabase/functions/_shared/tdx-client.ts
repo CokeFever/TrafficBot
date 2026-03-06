@@ -160,11 +160,14 @@ export class TdxApiClient {
     userLat: number,
     userLon: number
   ): ParkingInfo[] {
+    console.log(`Merging data: ${lots.length} lots, ${availability.length} availability records`);
+    
     const availabilityMap = new Map<string, ParkingAvailability>();
     
     // Handle case where availability might not be an array
     if (Array.isArray(availability)) {
       availability.forEach((a) => availabilityMap.set(a.CarParkID, a));
+      console.log(`Availability map size: ${availabilityMap.size}`);
     } else {
       console.warn('Availability data is not an array:', availability);
     }
@@ -173,9 +176,16 @@ export class TdxApiClient {
       .map((lot) => {
         // Get position (handle both Position and CarParkPosition)
         const position = lot.Position || lot.CarParkPosition;
-        if (!position) return null;
+        if (!position) {
+          console.warn(`No position for lot: ${lot.CarParkID}`);
+          return null;
+        }
 
         const avail = availabilityMap.get(lot.CarParkID);
+        if (!avail) {
+          console.log(`No availability data for: ${lot.CarParkID} (${lot.CarParkName?.Zh_tw})`);
+        }
+        
         const distance = this.calculateDistance(
           userLat,
           userLon,
@@ -185,14 +195,14 @@ export class TdxApiClient {
 
         return {
           id: lot.CarParkID,
-          name: lot.CarParkName?.Zh_tw || 'Unknown',
+          name: lot.CarParkName?.Zh_tw || lot.CarParkName?.En || 'Unknown',
           address: lot.Address || '地址未提供',
           latitude: position.PositionLat,
           longitude: position.PositionLon,
           distance,
           totalSpaces: lot.TotalSpaces || 0,
           availableSpaces: avail?.AvailableSpaces ?? -1,
-          fareInfo: lot.FareDescription?.Zh_tw || '收費資訊未提供',
+          fareInfo: lot.FareDescription?.Zh_tw || lot.FareDescription?.En || '收費資訊未提供',
           updateTime: avail?.UpdateTime || '',
         };
       })
