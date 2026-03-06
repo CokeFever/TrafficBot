@@ -4,10 +4,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'supabase/functions/**'
-      - 'supabase/migrations/**'
-      - '.github/workflows/deploy-supabase.yml'
 
 jobs:
   deploy:
