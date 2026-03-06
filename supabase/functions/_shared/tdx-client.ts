@@ -15,7 +15,8 @@ interface ParkingLot {
   CarParkPosition?: { PositionLat: number; PositionLon: number };
   TotalSpaces?: number;
   ServiceTime?: string;
-  FareDescription?: { Zh_tw: string };
+  FareDescription?: { Zh_tw: string } | string;
+  Description?: string;
 }
 
 interface ParkingAvailability {
@@ -35,6 +36,21 @@ export interface ParkingInfo {
   availableSpaces: number;
   fareInfo: string;
   updateTime: string;
+  
+  // 特殊車位資訊
+  heavyMotorcycleSpaces?: number;
+  chargingSpaces?: number;
+  handicapSpaces?: number;
+  womenChildrenSpaces?: number;
+  
+  // 收費細節
+  hourlyRate?: string;
+  monthlyRate?: string;
+  motorcycleMonthlyRate?: string;
+  
+  // 原始資料
+  description?: string;
+  fareDescription?: string;
 }
 
 export class TdxApiClient {
@@ -193,6 +209,18 @@ export class TdxApiClient {
           position.PositionLon
         );
 
+        // 取得描述和收費資訊
+        const description = lot.Description || '';
+        const fareDescription = typeof lot.FareDescription === 'string' 
+          ? lot.FareDescription 
+          : (lot.FareDescription?.Zh_tw || '');
+        
+        // 解析特殊車位
+        const specialSpaces = this.parseSpecialSpaces(description);
+        
+        // 解析收費資訊
+        const fareInfo = this.parseFareInfo(fareDescription);
+
         return {
           id: lot.CarParkID,
           name: lot.CarParkName?.Zh_tw || lot.CarParkName?.En || 'Unknown',
@@ -202,11 +230,97 @@ export class TdxApiClient {
           distance,
           totalSpaces: lot.TotalSpaces || 0,
           availableSpaces: avail?.AvailableSpaces ?? -1,
-          fareInfo: lot.FareDescription?.Zh_tw || lot.FareDescription?.En || '收費資訊未提供',
+          fareInfo: fareDescription || '收費資訊未提供',
           updateTime: avail?.UpdateTime || '',
+          
+          // 特殊車位
+          heavyMotorcycleSpaces: specialSpaces.heavyMotorcycle,
+          chargingSpaces: specialSpaces.charging,
+          handicapSpaces: specialSpaces.handicap,
+          womenChildrenSpaces: specialSpaces.womenChildren,
+          
+          // 收費細節
+          hourlyRate: fareInfo.hourlyRate,
+          monthlyRate: fareInfo.monthlyRate,
+          motorcycleMonthlyRate: fareInfo.motorcycleMonthlyRate,
+          
+          // 原始資料
+          description,
+          fareDescription,
         };
       })
       .filter((p): p is ParkingInfo => p !== null);
+  }
+
+  private parseSpecialSpaces(description: string): {
+    heavyMotorcycle?: number;
+    charging?: number;
+    handicap?: number;
+    womenChildren?: number;
+  } {
+    const result: any = {};
+    
+    if (!description) return result;
+    
+    // 大型重機
+    const motorcycleMatch = description.match(/大[型重]?重?機[：:]?(\d+)格/);
+    if (motorcycleMatch) {
+      const count = parseInt(motorcycleMatch[1]);
+      if (count > 0) result.heavyMotorcycle = count;
+    }
+    
+    // 充電格位
+    const chargingMatch = description.match(/充電格?位[：:]?(\d+)[格個]/);
+    if (chargingMatch) {
+      const count = parseInt(chargingMatch[1]);
+      if (count > 0) result.charging = count;
+    }
+    
+    // 身心障礙停車位
+    const handicapMatch = description.match(/身心障礙停車位(\d+)格/);
+    if (handicapMatch) {
+      const count = parseInt(handicapMatch[1]);
+      if (count > 0) result.handicap = count;
+    }
+    
+    // 孕婦、育有六歲以下兒童停車位
+    const womenChildrenMatch = description.match(/孕婦、育有六歲以下兒童停車位(\d+)格/);
+    if (womenChildrenMatch) {
+      const count = parseInt(womenChildrenMatch[1]);
+      if (count > 0) result.womenChildren = count;
+    }
+    
+    return result;
+  }
+
+  private parseFareInfo(fareDescription: string): {
+    hourlyRate?: string;
+    monthlyRate?: string;
+    motorcycleMonthlyRate?: string;
+  } {
+    const result: any = {};
+    
+    if (!fareDescription) return result;
+    
+    // 計時收費
+    const hourlyMatch = fareDescription.match(/(\d+)元[/／]時/);
+    if (hourlyMatch) {
+      result.hourlyRate = `${hourlyMatch[1]}元/時`;
+    }
+    
+    // 月租（小型車）
+    const monthlyMatch = fareDescription.match(/月租[^0-9]*?(\d+,?\d*)元/);
+    if (monthlyMatch) {
+      result.monthlyRate = `${monthlyMatch[1]}元/月`;
+    }
+    
+    // 重機月租
+    const motorcycleMonthlyMatch = fareDescription.match(/大[型重]?重?機[^0-9]*?(\d+,?\d*)元/);
+    if (motorcycleMonthlyMatch) {
+      result.motorcycleMonthlyRate = `${motorcycleMonthlyMatch[1]}元/月`;
+    }
+    
+    return result;
   }
 
   private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {

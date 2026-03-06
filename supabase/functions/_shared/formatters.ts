@@ -6,25 +6,79 @@ export function formatParkingResults(results: ParkingInfo[], maxResults: number 
   }
 
   const limited = results.slice(0, maxResults);
-  let message = `🅿️ 找到 ${results.length} 個停車場（顯示前 ${limited.length} 個）\n\n`;
+  let message = `🅿️ 找到 ${results.length} 個停車場\n\n`;
 
   limited.forEach((parking, index) => {
-    const availableText =
-      parking.availableSpaces >= 0
-        ? `${parking.availableSpaces}/${parking.totalSpaces}`
+    message += `📍 ${parking.name}\n`;
+    message += `距離：${formatDistance(parking.distance)}\n`;
+    
+    // 車位
+    if (parking.totalSpaces > 0) {
+      const availableText = parking.availableSpaces >= 0 
+        ? `${parking.availableSpaces} / ${parking.totalSpaces}` 
         : '未提供';
-
-    const fareText = parking.fareInfo === '收費資訊未提供' ? '未提供' : truncateText(parking.fareInfo, 30);
-
-    message += `${index + 1}. ${parking.name}\n`;
-    message += `   📍 ${formatDistance(parking.distance)}\n`;
-    message += `   🚗 ${availableText}\n`;
-    message += `   💰 ${fareText}\n`;
-    message += `   🗺️ [導航](https://www.google.com/maps/dir/?api=1&destination=${parking.latitude},${parking.longitude})\n\n`;
+      message += `車位：${availableText}\n`;
+    } else {
+      message += `車位：未提供\n`;
+    }
+    
+    message += '\n';
+    
+    // 特殊車位（只有 > 0 才顯示，不加單位）
+    const specialLines: string[] = [];
+    
+    if (parking.heavyMotorcycleSpaces && parking.heavyMotorcycleSpaces > 0) {
+      specialLines.push(`🏍️ 重機：${parking.heavyMotorcycleSpaces}`);
+    }
+    if (parking.chargingSpaces && parking.chargingSpaces > 0) {
+      specialLines.push(`⚡ 充電：${parking.chargingSpaces}`);
+    }
+    if (parking.handicapSpaces && parking.handicapSpaces > 0) {
+      specialLines.push(`♿ 殘障：${parking.handicapSpaces}`);
+    }
+    if (parking.womenChildrenSpaces && parking.womenChildrenSpaces > 0) {
+      specialLines.push(`👶 婦幼：${parking.womenChildrenSpaces}`);
+    }
+    
+    if (specialLines.length > 0) {
+      message += specialLines.join('\n') + '\n\n';
+    }
+    
+    // 收費
+    if (parking.fareDescription) {
+      message += '收費：\n';
+      if (parking.hourlyRate) {
+        message += `- 計時：${parking.hourlyRate}\n`;
+      }
+      if (parking.monthlyRate) {
+        message += `- 月租：${parking.monthlyRate}\n`;
+      }
+      if (parking.motorcycleMonthlyRate) {
+        message += `- 重機月租：${parking.motorcycleMonthlyRate}\n`;
+      }
+      
+      // 如果沒有解析出細節，顯示原始說明（簡化版）
+      if (!parking.hourlyRate && !parking.monthlyRate) {
+        const simpleFare = parking.fareDescription.length > 100 
+          ? parking.fareDescription.substring(0, 100) + '...' 
+          : parking.fareDescription;
+        message += simpleFare + '\n';
+      }
+    } else {
+      message += '收費：未提供\n';
+    }
+    
+    // 導航連結
+    message += `[📍 導航](https://www.google.com/maps/dir/?api=1&destination=${parking.latitude},${parking.longitude})\n`;
+    
+    // 分隔線（除了最後一個）
+    if (index < limited.length - 1) {
+      message += '\n---\n\n';
+    }
   });
 
   if (results.length > maxResults) {
-    message += `... 還有 ${results.length - maxResults} 個停車場`;
+    message += `\n\n還有 ${results.length - maxResults} 個停車場...`;
   }
 
   // Check message length and truncate if needed
