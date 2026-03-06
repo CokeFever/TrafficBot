@@ -21,8 +21,14 @@ interface ParkingLot {
 
 interface ParkingAvailability {
   CarParkID: string;
+  CarParkName?: { Zh_tw: string; En?: string };
+  TotalSpaces?: number;
   AvailableSpaces: number;
-  UpdateTime: string;
+  UpdateTime?: string;
+  CarParkPosition?: { PositionLat: number; PositionLon: number };
+  Address?: string;
+  Description?: string;
+  FareDescription?: string;
 }
 
 export interface ParkingInfo {
@@ -167,7 +173,9 @@ export class TdxApiClient {
     }
 
     const data = await response.json();
-    return Array.isArray(data) ? data : [];
+    const availabilities = Array.isArray(data) ? data : (data.ParkingAvailabilities || []);
+    console.log(`Fetched ${availabilities.length} availability records from API`);
+    return availabilities;
   }
 
   private mergeParkingData(
@@ -209,11 +217,10 @@ export class TdxApiClient {
           position.PositionLon
         );
 
-        // 取得描述和收費資訊
-        const description = lot.Description || '';
-        const fareDescription = typeof lot.FareDescription === 'string' 
-          ? lot.FareDescription 
-          : (lot.FareDescription?.Zh_tw || '');
+        // 取得描述和收費資訊（優先使用 availability 的資料，因為它更完整）
+        const description = avail?.Description || lot.Description || '';
+        const fareDescription = avail?.FareDescription || 
+          (typeof lot.FareDescription === 'string' ? lot.FareDescription : (lot.FareDescription?.Zh_tw || ''));
         
         // 解析特殊車位
         const specialSpaces = this.parseSpecialSpaces(description);
@@ -221,15 +228,19 @@ export class TdxApiClient {
         // 解析收費資訊
         const fareInfo = this.parseFareInfo(fareDescription);
 
+        // 優先使用 availability 的 TotalSpaces，因為它是即時資料
+        const totalSpaces = avail?.TotalSpaces ?? lot.TotalSpaces ?? 0;
+        const availableSpaces = avail?.AvailableSpaces ?? -1;
+
         return {
           id: lot.CarParkID,
           name: lot.CarParkName?.Zh_tw || lot.CarParkName?.En || 'Unknown',
-          address: lot.Address || '地址未提供',
+          address: avail?.Address || lot.Address || '地址未提供',
           latitude: position.PositionLat,
           longitude: position.PositionLon,
           distance,
-          totalSpaces: lot.TotalSpaces || 0,
-          availableSpaces: avail?.AvailableSpaces ?? -1,
+          totalSpaces,
+          availableSpaces,
           fareInfo: fareDescription || '收費資訊未提供',
           updateTime: avail?.UpdateTime || '',
           
