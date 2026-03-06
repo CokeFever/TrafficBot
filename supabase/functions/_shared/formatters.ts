@@ -14,11 +14,12 @@ export function formatParkingResults(results: ParkingInfo[], maxResults: number 
         ? `${parking.availableSpaces}/${parking.totalSpaces}`
         : '未提供';
 
-    const statusEmoji = getAvailabilityEmoji(parking.availableSpaces, parking.totalSpaces);
+    const fareText = parking.fareInfo === '收費資訊未提供' ? '未提供' : truncateText(parking.fareInfo, 30);
 
-    message += `${index + 1}. ${statusEmoji} ${parking.name}\n`;
-    message += `   📍 ${formatDistance(parking.distance)} | 🚗 ${availableText}\n`;
-    message += `   💰 ${truncateText(parking.fareInfo, 30)}\n`;
+    message += `${index + 1}. ${parking.name}\n`;
+    message += `   📍 ${formatDistance(parking.distance)}\n`;
+    message += `   🚗 ${availableText}\n`;
+    message += `   💰 ${fareText}\n`;
     message += `   🗺️ [導航](https://www.google.com/maps/dir/?api=1&destination=${parking.latitude},${parking.longitude})\n\n`;
   });
 
@@ -37,16 +38,6 @@ export function formatParkingResults(results: ParkingInfo[], maxResults: number 
 function truncateText(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   return text.substring(0, maxLength - 3) + '...';
-}
-
-function getAvailabilityEmoji(available: number, total: number): string {
-  if (available < 0) return '❓';
-  if (available === 0) return '🔴';
-  
-  const ratio = available / total;
-  if (ratio > 0.3) return '🟢';
-  if (ratio > 0.1) return '🟡';
-  return '🔴';
 }
 
 function formatDistance(meters: number): string {
