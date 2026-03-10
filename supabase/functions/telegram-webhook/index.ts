@@ -1,7 +1,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { TdxApiClient } from '../_shared/tdx-client.ts';
-import { formatParkingResults, formatError, formatRadiusText } from '../_shared/formatters.ts';
+import { formatParkingResults, formatTrafficResults, formatError, formatRadiusText } from '../_shared/formatters.ts';
 
 // Initialize bot commands on startup
 async function initializeBotCommands(botToken: string) {
@@ -228,9 +228,9 @@ async function handleTrafficCommand(
       reply_markup: {
         inline_keyboard: [
           [
+            { text: '250m', callback_data: 'traffic:radius:250' },
             { text: '500m', callback_data: 'traffic:radius:500' },
             { text: '1km', callback_data: 'traffic:radius:1000' },
-            { text: '2km', callback_data: 'traffic:radius:2000' },
           ],
         ],
       },

@@ -102,9 +102,9 @@ export class TrafficHandler {
     await ctx.reply(message, {
       reply_markup: {
         inline_keyboard: [
+          [{ text: '250 公尺', callback_data: 'traffic:radius:250' }],
           [{ text: '500 公尺', callback_data: 'traffic:radius:500' }],
           [{ text: '1 公里', callback_data: 'traffic:radius:1000' }],
-          [{ text: '2 公里', callback_data: 'traffic:radius:2000' }],
         ],
       },
     });
