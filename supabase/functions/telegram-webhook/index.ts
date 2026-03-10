@@ -9,6 +9,7 @@ async function initializeBotCommands(botToken: string) {
     { command: 'start', description: '開始使用' },
     { command: 'help', description: '查看說明' },
     { command: 'parking', description: '搜尋附近停車位' },
+    { command: 'traffic', description: '查詢附近路況' },
     { command: 'setup', description: '設定 TDX API Key' },
     { command: 'config', description: '查看當前配置' },
     { command: 'reset', description: '重置配置' },
@@ -193,6 +194,13 @@ async function handleTrafficCommand(
   supabase: any,
   botToken: string
 ) {
+  // Check if user is configured
+  const config = await getUserConfig(userId, supabase);
+  if (!config || !config.tdx_api_key) {
+    await sendMessage(chatId, '請先完成初始配置，輸入 /setup 開始設定', botToken);
+    return;
+  }
+
   // Similar to parking command
   if (args.length > 0) {
     const radius = parseRadius(args[0]);
@@ -200,7 +208,7 @@ async function handleTrafficCommand(
       await saveUserState(userId, { command: 'traffic', radius }, supabase);
       await sendMessage(
         chatId,
-        `請分享你的位置，我將查詢 ${args[0]} 範圍內的車流狀況`,
+        `請分享你的位置，我將查詢 ${args[0]} 範圍內的路況資訊`,
         botToken,
         {
           reply_markup: {
@@ -214,7 +222,19 @@ async function handleTrafficCommand(
       await sendMessage(chatId, '無效的半徑參數，請使用 500m、1km 或 2km', botToken);
     }
   } else {
-    await sendMessage(chatId, '🚧 車流查詢功能開發中', botToken);
+    // No parameter, show radius selection
+    await saveUserState(userId, { command: 'traffic' }, supabase);
+    await sendMessage(chatId, '請選擇搜尋範圍：', botToken, {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '500m', callback_data: 'traffic:radius:500' },
+            { text: '1km', callback_data: 'traffic:radius:1000' },
+            { text: '2km', callback_data: 'traffic:radius:2000' },
+          ],
+        ],
+      },
+    });
   }
 }
 
@@ -435,6 +455,8 @@ async function handleCallbackQuery(callbackQuery: any, supabase: any, botToken: 
 
   if (action === 'parking') {
     await handleParkingCallback(params, chatId, userId, supabase, botToken);
+  } else if (action === 'traffic') {
+    await handleTrafficCallback(params, chatId, userId, supabase, botToken);
   } else if (action === 'reset') {
     await handleResetCallback(params, chatId, userId, supabase, botToken);
   }
@@ -461,6 +483,35 @@ async function handleParkingCallback(
     } else {
       // Save radius and ask for location
       await saveUserState(userId, { command: 'parking', radius }, supabase);
+      await sendMessage(chatId, `請分享你的位置（搜尋範圍：${formatRadiusText(radius)}）`, botToken, {
+        reply_markup: {
+          keyboard: [[{ text: '📍 分享位置', request_location: true }]],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        },
+      });
+    }
+  }
+}
+
+async function handleTrafficCallback(
+  params: string[],
+  chatId: number,
+  userId: string,
+  supabase: any,
+  botToken: string
+) {
+  if (params[0] === 'radius') {
+    const radius = parseInt(params[1]);
+    const state = await getUserState(userId, supabase);
+    
+    if (state && state.latitude && state.longitude) {
+      // Location already provided, query directly
+      await handleTrafficQuery(state.latitude, state.longitude, radius, chatId, userId, supabase, botToken);
+      await clearUserState(userId, supabase);
+    } else {
+      // Save radius and ask for location
+      await saveUserState(userId, { command: 'traffic', radius }, supabase);
       await sendMessage(chatId, `請分享你的位置（搜尋範圍：${formatRadiusText(radius)}）`, botToken, {
         reply_markup: {
           keyboard: [[{ text: '📍 分享位置', request_location: true }]],
@@ -549,8 +600,31 @@ async function handleTrafficQuery(
   supabase: any,
   botToken: string
 ) {
-  await sendMessage(chatId, '🔍 查詢中...', botToken);
-  await sendMessage(chatId, '🚧 車流查詢功能開發中', botToken);
+  try {
+    await sendMessage(chatId, '🔍 查詢中...', botToken, {
+      reply_markup: { remove_keyboard: true }
+    });
+    
+    // Get user's TDX API key
+    const config = await getUserConfig(userId, supabase);
+    const apiKey = config?.tdx_api_key;
+    
+    if (!apiKey) {
+      await sendMessage(chatId, '❌ 無法取得 API 金鑰，請使用 /setup 重新配置', botToken);
+      return;
+    }
+
+    // Query traffic
+    const tdxClient = new TdxApiClient(apiKey);
+    const results = await tdxClient.queryNearbyTraffic(latitude, longitude, radius);
+
+    // Format and send results
+    const message = formatTrafficResults(results);
+    await sendMessage(chatId, message, botToken, { parse_mode: 'Markdown' });
+  } catch (error) {
+    const errorMessage = formatError(error as Error);
+    await sendMessage(chatId, errorMessage, botToken);
+  }
 }
 
 // Helper functions
@@ -726,19 +800,19 @@ async function validateTdxApiKey(apiKey: string): Promise<boolean> {
 
 function getWelcomeMessage(): string {
   return `
-🚗 歡迎使用停車位查詢 Bot！
+🚗 歡迎使用停車位與路況查詢 Bot！
 
 ✅ 目前可用功能：
 • 停車位搜尋
+• 路況查詢
 
 🚧 開發中功能：
-• 車流查詢
 • 經常性路線管理
 • 主動推播通知
 
 💡 試用模式：
-每人每天可免費查詢 2 次
-想要無限制使用？請使用 /setup 設定你的 TDX API Key
+每人每天可免費查詢 2 次停車位
+路況查詢需要設定 TDX API Key
 
 輸入 /help 查看詳細說明
   `.trim();
@@ -753,18 +827,21 @@ function getHelpMessage(): string {
   例如：/parking 500m 或 /parking 1km
   也可以直接分享位置或 Google Maps 連結
 
+/traffic [半徑] - 查詢附近路況
+  例如：/traffic 500m 或 /traffic 1km
+  顯示壅塞、事故、施工等資訊
+
 🚧 開發中功能：
-/traffic [半徑] - 查詢附近車流（開發中）
-/routes [半徑] - 管理經常性路線（開發中）
+/routes - 管理經常性路線（開發中）
 
 ⚙️ 設定：
-/setup - 設定 TDX API Key（可選）
+/setup - 設定 TDX API Key
 /config - 查看當前配置
 /reset - 重置配置
 
 💡 試用模式：
-每人每天可免費查詢 2 次
-使用 /setup 設定你的 API Key 以解除限制
+停車位查詢：每人每天可免費查詢 2 次
+路況查詢：需要設定 TDX API Key
 
 需要協助？請參考使用手冊
   `.trim();

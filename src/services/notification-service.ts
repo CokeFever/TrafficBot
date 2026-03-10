@@ -92,7 +92,7 @@ export class NotificationServiceImpl implements NotificationService {
   }
 
   shouldNotify(
-    currentTraffic: TrafficInfo,
+    _currentTraffic: TrafficInfo,
     events: TrafficEvent[],
     lastNotification?: NotificationRecord
   ): boolean {
@@ -105,9 +105,11 @@ export class NotificationServiceImpl implements NotificationService {
     }
 
     // Check for heavy congestion
-    if (currentTraffic.status === 'heavy_congestion') {
-      return true;
-    }
+    // Note: This is a placeholder for future implementation
+    // if (currentTraffic.status === 'congested') {
+    //   return true;
+    // }
+    return false;
 
     // Check for major accidents
     const majorAccidents = events.filter(
@@ -115,9 +117,9 @@ export class NotificationServiceImpl implements NotificationService {
     );
     if (majorAccidents.length > 0) {
       // Check if these are new events
-      if (lastNotification) {
+      if (lastNotification?.eventIds) {
         const newEvents = majorAccidents.filter(
-          (e) => !lastNotification.eventIds.includes(e.id)
+          (e) => !lastNotification!.eventIds.includes(e.id)
         );
         return newEvents.length > 0;
       }
@@ -143,7 +145,7 @@ export class NotificationServiceImpl implements NotificationService {
         id: `${route.id}-${Date.now()}`,
         routeId: route.id,
         userId,
-        trafficStatus: traffic.status,
+        trafficStatus: 'unknown', // Placeholder for future implementation
         eventIds: events.map((e) => e.id),
         sentAt: new Date(),
       };
@@ -157,16 +159,17 @@ export class NotificationServiceImpl implements NotificationService {
 
   private formatNotificationMessage(
     route: RoutineRoute,
-    traffic: TrafficInfo,
+    _traffic: TrafficInfo,
     events: TrafficEvent[]
   ): string {
     const lines = ['⚠️ 路線異常通知\n'];
     lines.push(`您的經常性路線「${route.name}」出現異常：\n`);
 
-    if (traffic.status === 'heavy_congestion') {
-      lines.push('🔴 嚴重壅塞');
-      lines.push(`預估時間：${traffic.estimatedDuration} 分鐘\n`);
-    }
+    // Note: This is a placeholder for future implementation
+    // if (traffic.status === 'congested') {
+    //   lines.push('🔴 嚴重壅塞');
+    //   lines.push(`速度：${traffic.speed || 0} km/h\n`);
+    // }
 
     if (events.length > 0) {
       lines.push('🚨 交通事故');

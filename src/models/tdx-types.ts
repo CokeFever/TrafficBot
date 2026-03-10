@@ -138,7 +138,7 @@ export function transformTdxParking(
   tdxData: TdxParkingResponse,
   referencePoint: Coordinates
 ): ParkingFacility[] {
-  return tdxData.ParkingAvailabilities.map((item) => {
+  const results = tdxData.ParkingAvailabilities.map((item): ParkingFacility | null => {
     // Handle both Position (availability API) and CarParkPosition (nearby API)
     const position = (item as any).Position || (item as any).CarParkPosition;
     const lat = position?.PositionLat;
@@ -189,7 +189,9 @@ export function transformTdxParking(
       description,
       fareDescription,
     };
-  }).filter((item): item is ParkingFacility => item !== null);
+  });
+  
+  return results.filter((item): item is ParkingFacility => item !== null);
 }
 
 export function transformTdxEvents(tdxData: TdxEventResponse): TrafficEvent[] {

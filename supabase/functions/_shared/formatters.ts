@@ -1,4 +1,4 @@
-import { ParkingInfo } from './tdx-client.ts';
+import { ParkingInfo, TrafficInfo } from './tdx-client.ts';
 
 export function formatParkingResults(results: ParkingInfo[], maxResults: number = 10): string {
   if (results.length === 0) {
@@ -187,4 +187,283 @@ export function formatRadiusText(radius: number): string {
     return `${radius}m`;
   }
   return `${radius / 1000}km`;
+}
+
+export function formatTrafficResults(results: TrafficInfo[], maxResults: number = 5): string {
+  if (results.length === 0) {
+    return '❌ 附近沒有找到路況資訊';
+  }
+
+  // Filter out normal traffic (within ±10% of expected speed)
+  const abnormalTraffic = results.filter(traffic => {
+    // Always include CMS messages
+    if (traffic.messageText) return true;
+    
+    // For VD data, check if speed deviation is significant
+    if (traffic.speed > 0 && traffic.roadClass !== undefined) {
+      const expectedSpeed = getExpectedSpeed(traffic.roadClass);
+      const deviation = Math.abs(traffic.speed - expectedSpeed) / expectedSpeed;
+      return deviation > 0.1; // More than 10% deviation
+    }
+    
+    return false;
+  });
+
+  if (abnormalTraffic.length === 0) {
+    return '✅ 附近路況順暢';
+  }
+
+  // Sort by severity first
+  const sorted = abnormalTraffic.sort((a, b) => {
+    const severityA = getSeverityScore(a);
+    const severityB = getSeverityScore(b);
+    return severityB - severityA;
+  });
+
+  // Group by road name (for VD data only, keep CMS separate)
+  const grouped = groupByRoadName(sorted);
+
+  // Take top 5
+  const top5 = grouped.slice(0, maxResults);
+
+  let message = `🚦 附近路況 (${top5.length}則重要資訊)\n\n`;
+  
+  top5.forEach((item, index) => {
+    if (item.isGroup) {
+      // Grouped VD data
+      const statusIcon = getStatusIcon(item.status);
+      const roadInfo = `${item.roadName}${item.direction ? ` ${getDirectionText(item.direction)}` : ''}`;
+      
+      message += `${statusIcon} ${roadInfo} (${item.distances})\n`;
+      message += `   ${getStatusText(item.status)} ${item.speedRange}\n`;
+    } else {
+      // Single item (CMS message or single VD)
+      const traffic = item.data;
+      const statusIcon = getStatusIcon(traffic.status);
+      const roadInfo = `${traffic.roadName}${traffic.direction ? ` ${getDirectionText(traffic.direction)}` : ''}`;
+      
+      // CMS messages
+      if (traffic.messageText) {
+        message += `${getMessageTypeIcon(traffic.messageType)} ${roadInfo} (${formatDistance(traffic.distance)})\n`;
+        message += `   ${traffic.messageText}\n`;
+      }
+      // VD data
+      else if (traffic.speed > 0) {
+        message += `${statusIcon} ${roadInfo} (${formatDistance(traffic.distance)})\n`;
+        message += `   ${getStatusText(traffic.status)} ${traffic.speed}km/h\n`;
+      }
+    }
+    
+    if (index < top5.length - 1) {
+      message += '\n';
+    }
+  });
+
+  return message;
+}
+
+interface GroupedTraffic {
+  isGroup: boolean;
+  roadName: string;
+  direction?: string;
+  status: string;
+  distances?: string;
+  speedRange?: string;
+  data?: TrafficInfo;
+  severity: number;
+}
+
+function groupByRoadName(traffic: TrafficInfo[]): GroupedTraffic[] {
+  const groups = new Map<string, TrafficInfo[]>();
+  const singles: TrafficInfo[] = [];
+  
+  // Separate CMS messages and VD data
+  for (const item of traffic) {
+    if (item.messageText) {
+      // CMS messages are always kept separate
+      singles.push(item);
+    } else {
+      // Group VD data by road name
+      const key = item.roadName;
+      if (!groups.has(key)) {
+        groups.set(key, []);
+      }
+      groups.get(key)!.push(item);
+    }
+  }
+  
+  const result: GroupedTraffic[] = [];
+  
+  // Add CMS messages first (they have higher severity)
+  for (const item of singles) {
+    result.push({
+      isGroup: false,
+      roadName: item.roadName,
+      direction: item.direction,
+      status: item.status,
+      data: item,
+      severity: getSeverityScore(item),
+    });
+  }
+  
+  // Add grouped VD data
+  for (const [roadName, items] of groups.entries()) {
+    if (items.length === 1) {
+      // Single item, don't group
+      result.push({
+        isGroup: false,
+        roadName: items[0].roadName,
+        direction: items[0].direction,
+        status: items[0].status,
+        data: items[0],
+        severity: getSeverityScore(items[0]),
+      });
+    } else {
+      // Multiple items - only include abnormal ones (congested or slow)
+      const abnormalItems = items.filter(i => i.status === 'congested' || i.status === 'slow');
+      
+      if (abnormalItems.length === 0) {
+        // All items are smooth, skip
+        continue;
+      } else if (abnormalItems.length === 1) {
+        // Only one abnormal item
+        result.push({
+          isGroup: false,
+          roadName: abnormalItems[0].roadName,
+          direction: abnormalItems[0].direction,
+          status: abnormalItems[0].status,
+          data: abnormalItems[0],
+          severity: getSeverityScore(abnormalItems[0]),
+        });
+      } else {
+        // Multiple abnormal items, group them
+        const distances = abnormalItems.map(i => i.distance).sort((a, b) => a - b);
+        const speeds = abnormalItems.map(i => i.speed).filter(s => s > 0).sort((a, b) => a - b);
+        
+        const minDistance = distances[0];
+        const maxDistance = distances[distances.length - 1];
+        const minSpeed = speeds[0];
+        const maxSpeed = speeds[speeds.length - 1];
+        
+        // Use the most severe status
+        const mostSevere = abnormalItems.reduce((max, item) => 
+          getSeverityScore(item) > getSeverityScore(max) ? item : max
+        );
+        
+        result.push({
+          isGroup: true,
+          roadName,
+          direction: abnormalItems[0].direction,
+          status: mostSevere.status,
+          distances: formatDistanceRange(minDistance, maxDistance),
+          speedRange: `${minSpeed}~${maxSpeed}km/h`,
+          severity: getSeverityScore(mostSevere),
+        });
+      }
+    }
+  }
+  
+  // Sort by severity again after grouping
+  result.sort((a, b) => b.severity - a.severity);
+  
+  return result;
+}
+
+function formatDistanceRange(min: number, max: number): string {
+  if (min === max) {
+    return formatDistance(min);
+  }
+  
+  // If both < 1000m, show in meters
+  if (max < 1000) {
+    return `${Math.round(min)} - ${Math.round(max)}m`;
+  }
+  
+  // If min < 1000 but max >= 1000
+  if (min < 1000) {
+    return `${Math.round(min)}m - ${(max / 1000).toFixed(1)}km`;
+  }
+  
+  // Both >= 1000m, show in km
+  return `${(min / 1000).toFixed(1)} - ${(max / 1000).toFixed(1)}km`;
+}
+
+function getExpectedSpeed(roadClass: number): number {
+  switch (roadClass) {
+    case 0: return 100; // 國道
+    case 1:
+    case 2: return 70;  // 快速道路
+    case 7: return 60;  // 匝道
+    default: return 50; // 一般道路
+  }
+}
+
+function getSeverityScore(traffic: TrafficInfo): number {
+  // CMS messages have priority
+  if (traffic.messageType !== undefined) {
+    switch (traffic.messageType) {
+      case 3: return 100; // 事故
+      case 4: return 80;  // 施工
+      case 2: return 90;  // 壅塞
+      default: return 70;
+    }
+  }
+  
+  // VD data
+  switch (traffic.status) {
+    case 'congested': return 60;
+    case 'slow': return 40;
+    case 'smooth': return 20;
+    default: return 0;
+  }
+}
+
+function getStatusIcon(status: string): string {
+  switch (status) {
+    case 'smooth':
+      return '🟢';
+    case 'slow':
+      return '🟡';
+    case 'congested':
+      return '🔴';
+    default:
+      return '⚪';
+  }
+}
+
+function getStatusText(status: string): string {
+  switch (status) {
+    case 'smooth':
+      return '順暢';
+    case 'slow':
+      return '車多';
+    case 'congested':
+      return '塞車';
+    default:
+      return '未知';
+  }
+}
+
+function getMessageTypeIcon(type?: number): string {
+  switch (type) {
+    case 2: return '⚠️'; // 壅塞
+    case 3: return '🚨'; // 事故
+    case 4: return '🚧'; // 施工
+    case 5: return '🅿️'; // 停車
+    default: return 'ℹ️';
+  }
+}
+
+function getDirectionText(direction: string): string {
+  const dirMap: Record<string, string> = {
+    'N': '北向',
+    'S': '南向',
+    'E': '東向',
+    'W': '西向',
+    'NE': '東北向',
+    'NW': '西北向',
+    'SE': '東南向',
+    'SW': '西南向',
+  };
+  return dirMap[direction] || direction;
 }

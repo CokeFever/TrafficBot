@@ -45,7 +45,7 @@ async function main() {
   // Initialize services
   const configService = new ConfigServiceImpl(dataStore);
   const parkingService = new ParkingServiceImpl(tdxClient, cache);
-  const trafficService = new TrafficServiceImpl(tdxClient);
+  const trafficService = new TrafficServiceImpl(tdxClient, cache);
   const routeService = new RouteServiceImpl(dataStore);
 
   // Initialize location parser
@@ -114,15 +114,6 @@ async function main() {
       return routesHandler.handleDeleteConfirm(ctx, value);
     } else if (action === 'cancel') {
       return routesHandler.handleCancel(ctx);
-    } else if (action === 'add_from_traffic') {
-      const userId = ctx.from?.id.toString();
-      if (userId) {
-        const route = trafficHandler.getRouteFromState(userId);
-        if (route) {
-          trafficHandler.clearState(userId);
-          return routesHandler.handleAddFromTraffic(ctx, route);
-        }
-      }
     }
     return Promise.resolve();
   });

@@ -59,6 +59,17 @@ export interface ParkingInfo {
   fareDescription?: string;
 }
 
+export interface TrafficInfo {
+  roadName: string;
+  distance: number;
+  speed: number;
+  status: 'smooth' | 'slow' | 'congested';
+  messageText?: string;
+  messageType?: number;
+  direction?: string;
+  roadClass?: number;
+}
+
 export class TdxApiClient {
   private apiKey: string;
   private tokenCache: { token: string; expiresAt: number } | null = null;
@@ -507,5 +518,255 @@ export class TdxApiClient {
       console.error('Error parsing Google Maps URL with redirect:', error);
       return null;
     }
+  }
+
+  async queryNearbyTraffic(
+    latitude: number,
+    longitude: number,
+    radius: number
+  ): Promise<TrafficInfo[]> {
+    try {
+      const token = await this.getAccessToken();
+      const city = this.getCityFromCoordinates(latitude, longitude);
+
+      if (!city) {
+        throw new Error('Location is outside supported cities');
+      }
+
+      // Query CMS (Changeable Message Signs) for traffic messages
+      const cmsData = await this.queryCMSData(latitude, longitude, radius, city, token);
+      
+      // Query VD (Vehicle Detectors) for traffic flow
+      const vdData = await this.queryVDData(latitude, longitude, radius, city, token);
+      
+      // Combine and sort by distance
+      const allData = [...cmsData, ...vdData].sort((a, b) => a.distance - b.distance);
+
+      return allData;
+    } catch (error) {
+      console.error('Error querying traffic:', error);
+      throw error;
+    }
+  }
+
+  private async queryCMSData(
+    latitude: number,
+    longitude: number,
+    radius: number,
+    city: string,
+    token: string
+  ): Promise<TrafficInfo[]> {
+    try {
+      // Step 1: Get nearby CMS devices
+      const nearbyUrl = `https://tdx.transportdata.tw/api/advanced/v2/Road/Traffic/CMS/NearBy?$spatialFilter=nearby(${latitude},${longitude},${radius})&$format=JSON`;
+      
+      const nearbyResponse = await fetch(nearbyUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (!nearbyResponse.ok) {
+        console.error(`CMS NearBy API failed: ${nearbyResponse.status}`);
+        return [];
+      }
+      
+      const cmsDevices = await nearbyResponse.json();
+      if (!Array.isArray(cmsDevices) || cmsDevices.length === 0) return [];
+      
+      // Step 2: Get live messages for the city
+      const liveUrl = `https://tdx.transportdata.tw/api/basic/v2/Road/Traffic/Live/CMS/City/${city}?$format=JSON`;
+      
+      const liveResponse = await fetch(liveUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (!liveResponse.ok) {
+        console.error(`CMS Live API failed: ${liveResponse.status}`);
+        return [];
+      }
+      
+      const liveData = await liveResponse.json();
+      const cmsLives = liveData.CMSLives || [];
+      
+      // Create a map of live data
+      const liveMap = new Map();
+      cmsLives.forEach((live: any) => {
+        liveMap.set(live.CMSID, live);
+      });
+      
+      // Combine nearby devices with live data
+      const trafficData: TrafficInfo[] = [];
+      
+      for (const device of cmsDevices) {
+        const live = liveMap.get(device.CMSID);
+        
+        // Skip if no live data or no messages
+        if (!live || live.MessageStatus === 0 || !live.Messages || live.Messages.length === 0) {
+          continue;
+        }
+        
+        const distance = this.calculateDistance(
+          latitude,
+          longitude,
+          device.PositionLat,
+          device.PositionLon
+        );
+        
+        // Filter by radius
+        if (distance > radius) continue;
+        
+        // Get the first message (usually the most important)
+        const message = live.Messages[0];
+        
+        trafficData.push({
+          roadName: device.RoadName || '未知路段',
+          distance: Math.round(distance),
+          speed: 0,
+          status: this.getStatusFromMessageType(message.Type),
+          messageText: message.Text,
+          messageType: message.Type,
+          direction: device.RoadDirection,
+        });
+      }
+      
+      return trafficData;
+    } catch (error) {
+      console.error('CMS query error:', error);
+      return [];
+    }
+  }
+
+  private async queryVDData(
+    latitude: number,
+    longitude: number,
+    radius: number,
+    city: string,
+    token: string
+  ): Promise<TrafficInfo[]> {
+    try {
+      // Step 1: Get nearby VD devices
+      const nearbyUrl = `https://tdx.transportdata.tw/api/advanced/v2/Road/Traffic/VD/NearBy?$spatialFilter=nearby(${latitude},${longitude},${radius})&$format=JSON`;
+      
+      const nearbyResponse = await fetch(nearbyUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (!nearbyResponse.ok) {
+        console.error(`VD NearBy API failed: ${nearbyResponse.status}`);
+        return [];
+      }
+      
+      const vdDevices = await nearbyResponse.json();
+      if (!Array.isArray(vdDevices) || vdDevices.length === 0) return [];
+      
+      // Step 2: Get live flow data for the city
+      const liveUrl = `https://tdx.transportdata.tw/api/basic/v2/Road/Traffic/Live/VD/City/${city}?$format=JSON`;
+      
+      const liveResponse = await fetch(liveUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (!liveResponse.ok) {
+        console.error(`VD Live API failed: ${liveResponse.status}`);
+        return [];
+      }
+      
+      const liveData = await liveResponse.json();
+      const vdLives = liveData.VDLives || [];
+      
+      // Create a map of live data
+      const liveMap = new Map();
+      vdLives.forEach((live: any) => {
+        liveMap.set(live.VDID, live);
+      });
+      
+      // Combine nearby devices with live data
+      const trafficData: TrafficInfo[] = [];
+      
+      for (const device of vdDevices) {
+        const live = liveMap.get(device.VDID);
+        
+        // Skip if no live data
+        if (!live || !live.LinkFlows || live.LinkFlows.length === 0) {
+          continue;
+        }
+        
+        const distance = this.calculateDistance(
+          latitude,
+          longitude,
+          device.PositionLat,
+          device.PositionLon
+        );
+        
+        // Filter by radius
+        if (distance > radius) continue;
+        
+        // Calculate average speed from all lanes
+        let totalSpeed = 0;
+        let laneCount = 0;
+        
+        for (const link of live.LinkFlows) {
+          if (link.Lanes) {
+            for (const lane of link.Lanes) {
+              if (lane.Speed > 0 && lane.Speed !== -99) {
+                totalSpeed += lane.Speed;
+                laneCount++;
+              }
+            }
+          }
+        }
+        
+        if (laneCount === 0) continue;
+        
+        const avgSpeed = Math.round(totalSpeed / laneCount);
+        const roadClass = device.RoadClass || 6;
+        
+        trafficData.push({
+          roadName: device.RoadName || '未知路段',
+          distance: Math.round(distance),
+          speed: avgSpeed,
+          status: this.classifySpeedByRoadClass(avgSpeed, roadClass),
+          roadClass,
+        });
+      }
+      
+      return trafficData;
+    } catch (error) {
+      console.error('VD query error:', error);
+      return [];
+    }
+  }
+
+  private getStatusFromMessageType(type?: number): 'smooth' | 'slow' | 'congested' {
+    // Message types: 1=travel time, 2=congestion, 3=accident, 4=construction, 5=parking, 6=announcement, 7=other
+    if (type === 2 || type === 3) return 'congested';
+    if (type === 4) return 'slow';
+    return 'smooth';
+  }
+
+  private classifySpeedByRoadClass(speed: number, roadClass: number): 'smooth' | 'slow' | 'congested' {
+    // Handle invalid speed
+    if (speed === -99 || speed < 0) return 'smooth';
+    
+    let thresholds: { smooth: number; slow: number };
+    
+    switch (roadClass) {
+      case 0: // 國道
+        thresholds = { smooth: 80, slow: 50 };
+        break;
+      case 1: // 快速道路
+      case 2: // 市區快速道路
+        thresholds = { smooth: 60, slow: 40 };
+        break;
+      case 7: // 匝道
+        thresholds = { smooth: 50, slow: 30 };
+        break;
+      default: // 一般道路
+        thresholds = { smooth: 40, slow: 25 };
+        break;
+    }
+    
+    if (speed >= thresholds.smooth) return 'smooth';
+    if (speed >= thresholds.slow) return 'slow';
+    return 'congested';
   }
 }

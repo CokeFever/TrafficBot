@@ -47,9 +47,35 @@ export interface ParkingFacility {
 export type SearchRadius = 500 | 1000 | 2000; // in meters
 
 export interface TrafficInfo {
-  status: 'smooth' | 'congested' | 'heavy_congestion';
-  estimatedDuration: number; // in minutes
-  distance: number; // in kilometers
+  id: string;
+  type: 'message' | 'flow';
+  location: Coordinates;
+  distance: number; // in meters
+  road: {
+    name: string;
+    direction?: string;
+    class?: number;
+  };
+  message?: {
+    text: string;
+    messageType?: number;
+    priority?: number;
+  };
+  flow?: {
+    speed: number;
+    occupancy: number;
+    volume: number;
+    level: TrafficLevel;
+  };
+  updateTime: string;
+}
+
+export enum TrafficLevel {
+  SMOOTH = 'smooth',
+  BUSY = 'busy',
+  CONGESTED = 'congested',
+  SEVERE = 'severe',
+  UNKNOWN = 'unknown'
 }
 
 export interface TrafficEvent {
