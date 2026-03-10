@@ -3,6 +3,30 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { TdxApiClient } from '../_shared/tdx-client.ts';
 import { formatParkingResults, formatError, formatRadiusText } from '../_shared/formatters.ts';
 
+// Initialize bot commands on startup
+async function initializeBotCommands(botToken: string) {
+  const commands = [
+    { command: 'start', description: '開始使用' },
+    { command: 'help', description: '查看說明' },
+    { command: 'parking', description: '搜尋附近停車位' },
+    { command: 'setup', description: '設定 TDX API Key' },
+    { command: 'config', description: '查看當前配置' },
+    { command: 'reset', description: '重置配置' },
+  ];
+  
+  try {
+    const url = `https://api.telegram.org/bot${botToken}/setMyCommands`;
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commands }),
+    });
+    console.log('Bot commands initialized');
+  } catch (error) {
+    console.error('Failed to initialize bot commands:', error);
+  }
+}
+
 serve(async (req) => {
   try {
     // Verify request method
@@ -298,21 +322,18 @@ async function handleTextMessage(
 ) {
   const state = await getUserState(userId, supabase);
   
+  // Check if it's a Google Maps URL (handle even without state)
+  if (text.includes('maps.app.goo.gl') || text.includes('google.com/maps') || text.includes('goo.gl/maps')) {
+    await handleMapsUrl(text, chatId, userId, supabase, botToken);
+    return;
+  }
+  
   if (!state || !state.command) {
-    // Check if it's a Google Maps URL
-    if (text.includes('maps.app.goo.gl') || text.includes('google.com/maps')) {
-      await handleMapsUrl(text, chatId, userId, supabase, botToken);
-    }
     return;
   }
 
   if (state.command === 'setup') {
     await handleSetupFlow(text, state.step, chatId, userId, supabase, botToken);
-  } else if (state.command === 'parking' && !state.radius) {
-    // User might have sent a Google Maps URL
-    if (text.includes('maps.app.goo.gl') || text.includes('google.com/maps')) {
-      await handleMapsUrl(text, chatId, userId, supabase, botToken);
-    }
   }
 }
 
@@ -330,15 +351,9 @@ async function handleMapsUrl(
     return;
   }
 
-  // Get user's TDX API key for parsing
-  const config = await getUserConfig(userId, supabase);
-  if (!config || !config.tdx_api_key) {
-    await sendMessage(chatId, '❌ 請先使用 /setup 配置 TDX API Key', botToken);
-    return;
-  }
-
-  const tdxClient = new TdxApiClient(config.tdx_api_key);
-  const coords = tdxClient.parseGoogleMapsUrl(url);
+  // Parse URL using TdxApiClient (doesn't need real API key for parsing)
+  const tempClient = new TdxApiClient('temp:temp');
+  const coords = tempClient.parseGoogleMapsUrl(url);
 
   if (!coords) {
     await sendMessage(
@@ -481,21 +496,43 @@ async function handleParkingQuery(
   botToken: string
 ) {
   try {
-    await sendMessage(chatId, '🔍 查詢中...', botToken);
+    await sendMessage(chatId, '🔍 查詢中...', botToken, {
+      reply_markup: { remove_keyboard: true }
+    });
     
-    // Get user's TDX API key
+    // Get user's TDX API key or use trial key
     const config = await getUserConfig(userId, supabase);
-    if (!config || !config.tdx_api_key) {
-      await sendMessage(chatId, '❌ 請先使用 /setup 配置 TDX API Key', botToken);
-      return;
+    let apiKey = config?.tdx_api_key;
+    let isTrialMode = false;
+    
+    if (!apiKey) {
+      // Use trial key
+      apiKey = TdxApiClient.DEFAULT_TRIAL_KEY;
+      isTrialMode = true;
+      
+      // Check trial usage
+      const canUseTrial = await checkAndUpdateTrialUsage(userId, supabase);
+      if (!canUseTrial) {
+        const error = new Error('trial limit exceeded');
+        const errorMessage = formatError(error);
+        await sendMessage(chatId, errorMessage, botToken);
+        return;
+      }
     }
 
     // Query parking
-    const tdxClient = new TdxApiClient(config.tdx_api_key);
+    const tdxClient = new TdxApiClient(apiKey);
     const results = await tdxClient.queryNearbyParking(latitude, longitude, radius);
 
     // Format and send results
-    const message = formatParkingResults(results);
+    let message = formatParkingResults(results);
+    
+    // Add trial mode notice
+    if (isTrialMode) {
+      const usage = await getTrialUsage(userId, supabase);
+      message += `\n\n💡 試用模式：今日已使用 ${usage.usage_count}/${TdxApiClient.TRIAL_DAILY_LIMIT} 次\n使用 /setup 設定你的 API Key 以解除限制`;
+    }
+    
     await sendMessage(chatId, message, botToken, { parse_mode: 'Markdown' });
   } catch (error) {
     const errorMessage = formatError(error as Error);
@@ -597,6 +634,68 @@ async function deleteUserConfig(userId: string, supabase: any) {
   await supabase.from('user_configs').delete().eq('user_id', userId);
 }
 
+async function checkAndUpdateTrialUsage(userId: string, supabase: any): Promise<boolean> {
+  const today = new Date().toISOString().split('T')[0];
+  
+  // Get current usage
+  const { data: usage } = await supabase
+    .from('trial_usage')
+    .select('*')
+    .eq('user_id', userId)
+    .single();
+  
+  if (!usage) {
+    // First time user, create record
+    await supabase
+      .from('trial_usage')
+      .insert({
+        user_id: userId,
+        usage_count: 1,
+        last_reset_date: today,
+      });
+    return true;
+  }
+  
+  // Check if need to reset (new day)
+  if (usage.last_reset_date !== today) {
+    await supabase
+      .from('trial_usage')
+      .update({
+        usage_count: 1,
+        last_reset_date: today,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', userId);
+    return true;
+  }
+  
+  // Check if limit exceeded
+  if (usage.usage_count >= TdxApiClient.TRIAL_DAILY_LIMIT) {
+    return false;
+  }
+  
+  // Increment usage
+  await supabase
+    .from('trial_usage')
+    .update({
+      usage_count: usage.usage_count + 1,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('user_id', userId);
+  
+  return true;
+}
+
+async function getTrialUsage(userId: string, supabase: any): Promise<{ usage_count: number }> {
+  const { data } = await supabase
+    .from('trial_usage')
+    .select('usage_count')
+    .eq('user_id', userId)
+    .single();
+  
+  return data || { usage_count: 0 };
+}
+
 async function validateTdxApiKey(apiKey: string): Promise<boolean> {
   try {
     // Get access token
@@ -637,7 +736,10 @@ function getWelcomeMessage(): string {
 • 經常性路線管理
 • 主動推播通知
 
-請先使用 /setup 完成初始配置
+💡 試用模式：
+每人每天可免費查詢 2 次
+想要無限制使用？請使用 /setup 設定你的 TDX API Key
+
 輸入 /help 查看詳細說明
   `.trim();
 }
@@ -649,15 +751,20 @@ function getHelpMessage(): string {
 ✅ 可用功能：
 /parking [半徑] - 搜尋附近停車位
   例如：/parking 500m 或 /parking 1km
+  也可以直接分享位置或 Google Maps 連結
 
 🚧 開發中功能：
 /traffic [半徑] - 查詢附近車流（開發中）
 /routes [半徑] - 管理經常性路線（開發中）
 
 ⚙️ 設定：
-/setup - 初始配置
+/setup - 設定 TDX API Key（可選）
 /config - 查看當前配置
 /reset - 重置配置
+
+💡 試用模式：
+每人每天可免費查詢 2 次
+使用 /setup 設定你的 API Key 以解除限制
 
 需要協助？請參考使用手冊
   `.trim();

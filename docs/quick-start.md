@@ -1,270 +1,212 @@
 # 快速開始指南
 
-這是一個 5 分鐘快速開始指南，讓你快速部署並測試 Telegram Parking Bot。
+本指南幫助你快速部署和使用 Telegram Parking Bot。
 
-## 前置條件檢查清單
+## 架構概覽
 
-在開始之前，請確認你已經：
+- **前端**: Telegram Bot（Webhook 模式）
+- **後端**: Supabase Edge Functions（Deno runtime）
+- **資料庫**: Supabase PostgreSQL
+- **API**: TDX API（台灣交通部運輸資料流通服務）
 
-- [ ] 安裝 Node.js 18 或更高版本
-- [ ] 有 Telegram 帳號
-- [ ] 有 GitHub 帳號（用於註冊 Supabase）
+## 前置需求
 
-## 步驟 1: 建立 Telegram Bot (2 分鐘)
+1. Telegram Bot Token（從 @BotFather 取得）
+2. Supabase 帳號和專案
+3. TDX API Client ID 和 Client Secret（從 https://tdx.transportdata.tw/ 申請）
 
-1. 在 Telegram 搜尋 `@BotFather`
-2. 發送 `/newbot`
-3. 輸入 Bot 名稱（例如：`My Parking Bot`）
-4. 輸入 Bot username（例如：`my_parking_bot`，必須以 `_bot` 或 `Bot` 結尾）
-5. 複製 Bot Token（格式：`123456789:ABCdefGHIjklMNOpqrsTUVwxyz`）
+## 快速部署（5 分鐘）
 
-✅ **完成！** 你的 Bot Token 已取得
+### 1. Clone 專案
 
-## 步驟 2: 建立 Supabase 專案 (3 分鐘)
-
-1. 前往 https://supabase.com/
-2. 點擊 "Start your project" 並使用 GitHub 登入
-3. 點擊 "New Project"
-4. 填寫：
-   - Name: `parking-bot`
-   - Database Password: 設定一個強密碼（記下來！）
-   - Region: 選擇 `Northeast Asia (Tokyo)`
-5. 點擊 "Create new project"
-6. 等待 2-3 分鐘初始化
-
-✅ **完成！** Supabase 專案已建立
-
-## 步驟 3: 設定資料庫 (2 分鐘)
-
-1. 在 Supabase Dashboard 左側點擊 "SQL Editor"
-2. 點擊 "New query"
-3. 複製並貼上以下 SQL（或從 `supabase/migrations/001_initial_schema.sql` 複製）：
-
-```sql
--- 使用者配置表
-CREATE TABLE user_configs (
-  user_id TEXT PRIMARY KEY,
-  tdx_api_key TEXT NOT NULL,
-  backend_config JSONB,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
-
--- 經常性路線表
-CREATE TABLE routine_routes (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  origin JSONB NOT NULL,
-  destination JSONB NOT NULL,
-  notification_preferences JSONB,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW(),
-  FOREIGN KEY (user_id) REFERENCES user_configs(user_id) ON DELETE CASCADE
-);
-
--- 通知記錄表
-CREATE TABLE notification_records (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  route_id UUID NOT NULL,
-  user_id TEXT NOT NULL,
-  traffic_status TEXT,
-  event_ids TEXT[],
-  sent_at TIMESTAMP DEFAULT NOW(),
-  FOREIGN KEY (route_id) REFERENCES routine_routes(id) ON DELETE CASCADE
-);
-
--- 快取表
-CREATE TABLE cache_entries (
-  key TEXT PRIMARY KEY,
-  value JSONB NOT NULL,
-  expires_at TIMESTAMP NOT NULL
-);
-
--- Key-Value Store 表
-CREATE TABLE key_value_store (
-  key TEXT PRIMARY KEY,
-  value JSONB NOT NULL,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
-
--- 索引
-CREATE INDEX idx_routes_user_id ON routine_routes(user_id);
-CREATE INDEX idx_notifications_route_id ON notification_records(route_id);
-CREATE INDEX idx_notifications_sent_at ON notification_records(sent_at);
-CREATE INDEX idx_cache_expires_at ON cache_entries(expires_at);
-CREATE INDEX idx_kv_store_key ON key_value_store(key);
-```
-
-4. 點擊 "Run"
-5. 確認顯示 "Success"
-
-✅ **完成！** 資料庫已設定
-
-## 步驟 4: 取得 Supabase 連線資訊 (1 分鐘)
-
-1. 點擊左下角 "Project Settings"（齒輪圖示）
-2. 點擊 "API" 分頁
-3. 複製：
-   - **Project URL**: `https://xxxxx.supabase.co`
-   - **anon public key**: `eyJhbGc...`（很長的字串）
-
-✅ **完成！** 連線資訊已取得
-
-## 步驟 5: 申請 TDX API 金鑰 (需等待 1-3 天)
-
-1. 前往 https://tdx.transportdata.tw/
-2. 點擊右上角「註冊」
-3. 填寫資料並驗證 Email
-4. 登入後前往「會員中心」→「API 金鑰管理」
-5. 申請新金鑰（應用程式名稱：`Telegram Parking Bot`）
-6. 等待審核（通常 1-3 個工作天）
-
-⏳ **等待中...** 先繼續下一步，之後再回來取得金鑰
-
-## 步驟 6: 設定本地環境 (2 分鐘)
-
-1. 複製專案（如果還沒有）：
 ```bash
-git clone <your-repo-url>
-cd telegram-parking-bot
+git clone https://github.com/CokeFever/TrafficBot.git
+cd TrafficBot
 ```
 
-2. 安裝依賴：
+### 2. 安裝依賴
+
 ```bash
 npm install
 ```
 
-3. 建立環境變數檔案：
-```bash
-cp .env.example .env
-```
+### 3. 設定環境變數
 
-4. 編輯 `.env` 檔案：
-```bash
-# Windows
-notepad .env
+建立 `.env` 檔案：
 
-# Mac/Linux
-nano .env
-```
-
-5. 填入資訊：
 ```env
-TELEGRAM_BOT_TOKEN=你的_Bot_Token
-SUPABASE_URL=你的_Supabase_URL
-SUPABASE_KEY=你的_Supabase_Key
-ENCRYPTION_KEY=暫時填入任意32字元字串
+TELEGRAM_BOT_TOKEN=your_bot_token
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your_service_role_key
 ```
 
-6. 產生正式的加密金鑰：
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
-複製輸出並更新 `.env` 的 `ENCRYPTION_KEY`
-
-✅ **完成！** 環境已設定
-
-## 步驟 7: 啟動 Bot (1 分鐘)
+### 4. 安裝 Supabase CLI
 
 ```bash
-# 開發模式
-npm run dev
+npm install -g supabase
 ```
 
-看到以下訊息表示成功：
+### 5. 登入並連結專案
+
+```bash
+supabase login
+supabase link --project-ref your-project-ref
 ```
-Telegram Parking Bot starting...
-Bot is running!
+
+### 6. 部署資料庫 Schema
+
+```bash
+supabase db push
 ```
 
-✅ **完成！** Bot 已啟動
+### 7. 部署 Edge Function
 
-## 步驟 8: 測試 Bot (2 分鐘)
+```bash
+supabase functions deploy telegram-webhook
+```
 
-1. 在 Telegram 搜尋你的 Bot（使用步驟 1 建立的 username）
+### 8. 設定 Telegram Webhook
+
+```bash
+npm run setup-webhook
+```
+
+### 9. 測試 Bot
+
+在 Telegram 中：
+1. 搜尋你的 Bot
 2. 發送 `/start`
-3. 應該看到歡迎訊息
+3. 發送 `/setup` 配置 TDX API Key
+4. 測試 `/parking 500m`
 
-**暫時測試（沒有 TDX API 金鑰）**：
-- `/help` - 查看指令說明
-- `/config` - 查看配置狀態（應顯示未配置）
+## 使用指南
 
-**完整測試（有 TDX API 金鑰後）**：
-1. 發送 `/setup`
-2. 輸入 TDX API 金鑰
-3. 輸入 Supabase 連線字串（從步驟 4 的 Database 分頁取得）
-4. 測試 `/parking` 功能
+### 基本指令
 
-✅ **完成！** Bot 運作正常
+- `/start` - 開始使用
+- `/help` - 查看幫助
+- `/setup` - 配置 TDX API Key
+- `/config` - 查看當前配置
+- `/reset` - 重置配置
 
-## 下一步
+### 停車場查詢
 
-### 立即可做
+**方式 1：不帶參數**
+```
+/parking
+```
+Bot 會要求你：
+1. 選擇搜尋範圍（500m、1km、2km）
+2. 分享位置
 
-- ✅ 測試基本指令（`/start`, `/help`）
-- ✅ 查看 Bot 日誌確認運作正常
-- ✅ 閱讀[使用者手冊](user-guide.md)
+**方式 2：帶參數（快速查詢）**
+```
+/parking 500m
+```
+Bot 直接要求你分享位置，使用指定的範圍。
 
-### 等待 TDX API 金鑰後
+**方式 3：使用 Google Maps 連結**
+```
+/parking
+[分享 Google Maps 連結]
+```
 
-- ⏳ 完成 `/setup` 配置
-- ⏳ 測試停車位搜尋
-- ⏳ 測試車流查詢
-- ⏳ 設定經常性路線
+### 車流查詢（開發中）
 
-### 部署到雲端（可選）
+```
+/traffic 1km
+```
 
-- 📖 閱讀[Supabase 部署指南](deploy-supabase.md)
-- 🚀 部署到 Railway / Heroku / VPS
-- 🔔 設定定時監控任務
+### 路線管理（開發中）
+
+```
+/routes
+```
+
+## 本地開發
+
+### 啟動本地 Supabase
+
+```bash
+supabase start
+```
+
+### 本地運行 Edge Function
+
+```bash
+supabase functions serve telegram-webhook --env-file .env
+```
+
+### 測試 Webhook
+
+```bash
+npm run test-webhook
+```
+
+## 監控和除錯
+
+### 查看日誌
+
+```bash
+supabase functions logs telegram-webhook --follow
+```
+
+### 查看 Webhook 狀態
+
+```bash
+npm run webhook:info
+```
+
+### 查看資料庫
+
+```bash
+supabase db status
+```
 
 ## 常見問題
 
-### Q: Bot 無法啟動？
+### Bot 沒有回應
 
-**檢查**：
-```bash
-# 確認 Node.js 版本
-node --version  # 應該 >= 18
+1. 檢查 Webhook 是否設定正確：`npm run webhook:info`
+2. 查看 Edge Function 日誌：`supabase functions logs telegram-webhook`
+3. 確認環境變數設定正確
 
-# 確認依賴已安裝
-npm install
+### API Key 驗證失敗
 
-# 檢查 .env 檔案
-cat .env  # 確認所有變數都已填寫
-```
+1. 確認 TDX API Client ID 和 Client Secret 正確
+2. 檢查 API Key 格式：`ClientID:ClientSecret`
+3. 重新執行 `/setup`
 
-### Q: Supabase 連線失敗？
+### 找不到停車場
 
-**檢查**：
-- Supabase 專案狀態（Dashboard 應顯示綠色）
-- URL 和 Key 是否正確複製（注意不要有多餘空格）
-- 網路連線是否正常
+1. 確認位置在支援的城市範圍內（台北、新北、桃園、台中、台南、高雄、新竹）
+2. 嘗試增加搜尋範圍
+3. 檢查 TDX API 是否正常運作
 
-### Q: TDX API 申請很久沒通過？
+## 進階配置
 
-**解決**：
-- 通常 1-3 個工作天
-- 可以先測試其他功能
-- 如超過 3 天，聯繫 TDX 客服：service@tdx.gov.tw
+### 自訂搜尋範圍
 
-### Q: 想在手機上測試？
+修改 `supabase/functions/telegram-webhook/index.ts` 中的範圍選項。
 
-**方法**：
-1. 確保電腦和手機在同一網路
-2. 找到電腦的區域網路 IP（例如：192.168.1.100）
-3. 在 `.env` 設定 `PORT=3000`
-4. 手機 Telegram 可以正常使用
+### 調整結果數量
 
-## 需要協助？
+修改 `supabase/functions/_shared/formatters.ts` 中的 `maxResults` 參數。
 
-- 📖 [完整部署指南](deploy-supabase.md)
-- 📖 [TDX API 申請指南](tdx-api-guide.md)
-- 📖 [使用者手冊](user-guide.md)
-- 🐛 [回報問題](https://github.com/your-repo/issues)
+### 新增支援城市
 
----
+修改 `supabase/functions/_shared/tdx-client.ts` 中的 `getCityFromCoordinates` 方法。
 
-恭喜！你已經完成快速開始。享受使用 Telegram Parking Bot！🎉
+## 更多資訊
+
+- [完整部署指南](deploy-supabase.md)
+- [使用者指南](user-guide.md)
+- [TDX API 指南](tdx-api-guide.md)
+- [GitHub Repository](https://github.com/CokeFever/TrafficBot)
+
+## 支援
+
+如有問題，請：
+1. 查看 [GitHub Issues](https://github.com/CokeFever/TrafficBot/issues)
+2. 參考 [Supabase 文檔](https://supabase.com/docs)
+3. 參考 [Telegram Bot API 文檔](https://core.telegram.org/bots/api)

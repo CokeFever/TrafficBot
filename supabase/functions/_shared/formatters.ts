@@ -5,8 +5,18 @@ export function formatParkingResults(results: ParkingInfo[], maxResults: number 
     return '❌ 附近沒有找到停車場';
   }
 
-  const limited = results.slice(0, maxResults);
-  let message = `🅿️ 找到 ${results.length} 個停車場\n\n`;
+  // 智慧篩選：如果結果 >= 3，只顯示最近、空位最多、最便宜各一筆
+  let limited: ParkingInfo[];
+  let selectionNote = '';
+  
+  if (results.length >= 3) {
+    limited = selectBestParking(results);
+    selectionNote = '\n（已為您篩選：最近、空位最多、最便宜）';
+  } else {
+    limited = results.slice(0, maxResults);
+  }
+
+  let message = `🅿️ 找到 ${results.length} 個停車場${selectionNote}\n\n`;
 
   limited.forEach((parking, index) => {
     message += `📍 ${parking.name}\n`;
@@ -22,48 +32,41 @@ export function formatParkingResults(results: ParkingInfo[], maxResults: number 
       message += `車位：未提供\n`;
     }
     
-    message += '\n';
-    
-    // 特殊車位（只有 > 0 才顯示，不加單位）
-    const specialLines: string[] = [];
+    // 特殊車位（單行顯示，只有 > 0 才顯示）
+    const specialParts: string[] = [];
     
     if (parking.heavyMotorcycleSpaces && parking.heavyMotorcycleSpaces > 0) {
-      specialLines.push(`🏍️ 重機：${parking.heavyMotorcycleSpaces}`);
+      specialParts.push(`🏍️重機: ${parking.heavyMotorcycleSpaces}`);
     }
     if (parking.chargingSpaces && parking.chargingSpaces > 0) {
-      specialLines.push(`⚡ 充電：${parking.chargingSpaces}`);
+      specialParts.push(`⚡充電: ${parking.chargingSpaces}`);
     }
     if (parking.handicapSpaces && parking.handicapSpaces > 0) {
-      specialLines.push(`♿ 殘障：${parking.handicapSpaces}`);
+      specialParts.push(`♿殘障: ${parking.handicapSpaces}`);
     }
     if (parking.womenChildrenSpaces && parking.womenChildrenSpaces > 0) {
-      specialLines.push(`👶 婦幼：${parking.womenChildrenSpaces}`);
+      specialParts.push(`👶婦幼: ${parking.womenChildrenSpaces}`);
     }
     
-    if (specialLines.length > 0) {
-      message += specialLines.join('\n') + '\n\n';
+    if (specialParts.length > 0) {
+      message += specialParts.join(', ') + '\n';
     }
     
     // 收費
     if (parking.fareDescription) {
-      message += '收費：\n';
+      message += '收費：';
       if (parking.hourlyRate) {
-        message += `- 計時：${parking.hourlyRate}\n`;
-      }
-      if (parking.monthlyRate) {
-        message += `- 月租：${parking.monthlyRate}\n`;
-      }
-      if (parking.motorcycleMonthlyRate) {
-        message += `- 重機月租：${parking.motorcycleMonthlyRate}\n`;
-      }
-      
-      // 如果沒有解析出細節，顯示原始說明（簡化版）
-      if (!parking.hourlyRate && !parking.monthlyRate) {
-        const simpleFare = parking.fareDescription.length > 100 
-          ? parking.fareDescription.substring(0, 100) + '...' 
+        message += `${parking.hourlyRate}`;
+      } else if (parking.monthlyRate) {
+        message += `月租 ${parking.monthlyRate}`;
+      } else {
+        // 顯示原始說明（簡化版）
+        const simpleFare = parking.fareDescription.length > 60 
+          ? parking.fareDescription.substring(0, 60) + '...' 
           : parking.fareDescription;
-        message += simpleFare + '\n';
+        message += simpleFare;
       }
+      message += '\n';
     } else {
       message += '收費：未提供\n';
     }
@@ -77,8 +80,8 @@ export function formatParkingResults(results: ParkingInfo[], maxResults: number 
     }
   });
 
-  if (results.length > maxResults) {
-    message += `\n\n還有 ${results.length - maxResults} 個停車場...`;
+  if (results.length > limited.length) {
+    message += `\n\n還有 ${results.length - limited.length} 個停車場`;
   }
 
   // Check message length and truncate if needed
@@ -87,6 +90,63 @@ export function formatParkingResults(results: ParkingInfo[], maxResults: number 
   }
 
   return message;
+}
+
+// 智慧篩選：選出最近、空位最多、最便宜各一筆
+function selectBestParking(results: ParkingInfo[]): ParkingInfo[] {
+  const selected: ParkingInfo[] = [];
+  const selectedIds = new Set<string>();
+  
+  // 1. 距離最近的
+  const nearest = results[0]; // 已經按距離排序
+  selected.push(nearest);
+  selectedIds.add(nearest.id);
+  
+  // 2. 空位最多的（只考慮有空位資訊的）
+  const withAvailability = results.filter(p => p.availableSpaces >= 0 && p.totalSpaces > 0);
+  if (withAvailability.length > 0) {
+    const mostAvailable = withAvailability.reduce((max, p) => 
+      p.availableSpaces > max.availableSpaces ? p : max
+    );
+    if (!selectedIds.has(mostAvailable.id)) {
+      selected.push(mostAvailable);
+      selectedIds.add(mostAvailable.id);
+    }
+  }
+  
+  // 3. 最便宜的（只考慮有計時收費的）
+  const withHourlyRate = results.filter(p => p.hourlyRate);
+  if (withHourlyRate.length > 0) {
+    const cheapest = withHourlyRate.reduce((min, p) => {
+      const minPrice = extractPrice(min.hourlyRate);
+      const pPrice = extractPrice(p.hourlyRate);
+      return pPrice < minPrice ? p : min;
+    });
+    if (!selectedIds.has(cheapest.id)) {
+      selected.push(cheapest);
+      selectedIds.add(cheapest.id);
+    }
+  }
+  
+  // 如果篩選後少於 3 筆，補上距離最近的其他停車場
+  if (selected.length < 3) {
+    for (const parking of results) {
+      if (!selectedIds.has(parking.id)) {
+        selected.push(parking);
+        selectedIds.add(parking.id);
+        if (selected.length >= 3) break;
+      }
+    }
+  }
+  
+  return selected;
+}
+
+// 從收費字串中提取價格數字
+function extractPrice(rateStr: string | undefined): number {
+  if (!rateStr) return Infinity;
+  const match = rateStr.match(/(\d+)/);
+  return match ? parseInt(match[1]) : Infinity;
 }
 
 function truncateText(text: string, maxLength: number): string {
@@ -110,6 +170,13 @@ export function formatError(error: Error): string {
   
   if (error.message.includes('outside supported cities')) {
     return '❌ 此位置不在支援的城市範圍內\n\n目前支援：台北、新北、桃園、台中、台南、高雄、新竹';
+  }
+  
+  if (error.message.includes('trial limit exceeded')) {
+    return '❌ 試用次數已達每日上限（2次）\n\n' +
+           '請前往 TDX 平台申請免費 API Key：\n' +
+           'https://tdx.transportdata.tw/\n\n' +
+           '申請後使用 /setup 設定你的 API Key';
   }
   
   return '❌ 查詢失敗，請稍後再試';

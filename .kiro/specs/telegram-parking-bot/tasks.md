@@ -45,6 +45,7 @@
   - [x] 2.3 建立 TDX API 回應模型（src/models/tdx-types.ts）
     - 定義 TdxParkingResponse, TdxTrafficResponse, TdxEventResponse 介面
     - 建立 TDX 資料轉換函式
+    - 實作 parseSpecialSpaces 和 parseFareInfo 解析函數
     - _Requirements: 6.2_
   
   - [ ]* 2.4 撰寫 TDX 資料解析的屬性測試
@@ -108,6 +109,8 @@
     - 實作 queryTrafficEvents 方法
     - 設定 10 秒請求逾時
     - 實作指數退避重試策略
+    - 修正資料合併邏輯（包含 Description 和 FareDescription）
+    - 優先使用 availability API 的即時資料（TotalSpaces, Description）
     - _Requirements: 6.1, 6.3, 6.4, 6.5, 6.7, 10.4_
   
   - [ ]* 6.2 撰寫 TDX API Client 的屬性測試
@@ -130,6 +133,15 @@
     - 實作結果排序（按距離由近到遠）
     - 處理缺失資料（顯示「資訊未提供」）
     - _Requirements: 1.3, 1.4, 1.5, 2.3, 2.4, 2.5, 7.1, 7.2, 7.3, 7.5, 7.6_
+  
+  - [x] 7.1.1 實作停車場特殊車位資訊解析（2026-03-06 新增）
+    - 實作 parseSpecialSpaces 函數（解析重機、充電、殘障、婦幼車位）
+    - 實作 parseFareInfo 函數（解析計時、月租、重機月租收費）
+    - 更新 ParkingFacility 介面包含特殊車位欄位
+    - 更新 formatParkingInfo 使用條件式顯示（只顯示 > 0 的項目）
+    - 實作簡潔文字格式（車位、重機、充電、殘障、婦幼，無單位）
+    - 同步更新 Supabase Edge Functions（tdx-client.ts, formatters.ts）
+    - _新增功能：停車場特殊車位資訊顯示_
   
   - [ ]* 7.2 撰寫 Parking Service 的屬性測試
     - **Property 2: 搜尋半徑參數傳遞**
@@ -398,6 +410,21 @@
     - 部署選項說明
     - 連結到詳細文件
     - _Requirements: 13.8_
+  
+  - [x] 20.5 建立停車場功能文件（2026-03-06 新增）
+    - 建立 TDX_PARKING_RESEARCH.md（TDX API 停車資料研究）
+    - 建立 PARKING_DISPLAY_FORMAT.md（顯示格式規範）
+    - 建立 PARKING_FEATURE_GUIDE.md（功能使用指南）
+    - 建立 IMPLEMENTATION_COMPLETE.md（實作完成報告）
+    - 建立測試腳本（test-parking-simple.ts, test-motorcycle-info.ts, verify-parking-data.ts）
+    - _新增文件：停車場特殊車位功能完整文件_
+
+- [x] 20.6 設定 GitHub Actions 自動部署（2026-03-06）
+    - 建立 .github/workflows/deploy-supabase.yml
+    - 設定自動部署到 Supabase（推送到 main 分支時觸發）
+    - 配置 SUPABASE_ACCESS_TOKEN 和 SUPABASE_PROJECT_ID
+    - 自動執行 database migrations 和 Edge Functions 部署
+    - _新增功能：CI/CD 自動部署_
 
 - [ ] 21. 整合和端到端測試
   - [ ] 21.1 建立端到端測試環境
@@ -468,14 +495,68 @@
 - 屬性測試驗證通用正確性，單元測試驗證特定範例和邊界條件
 - 所有 API 金鑰和敏感資訊應使用環境變數，不可寫入程式碼
 
+## Implementation Status Summary (2026-03-06)
+
+### ✅ 已完成功能
+1. **核心基礎設施**（任務 1-6）：100% 完成
+   - 專案結構、資料模型、TDX API Client、Cache Layer
+   
+2. **停車場查詢功能**（任務 7, 15）：100% 完成
+   - 基本停車位查詢
+   - 特殊車位資訊（重機、充電、殘障、婦幼）
+   - 收費資訊解析（計時、月租、重機月租）
+   - 條件式顯示和簡潔格式
+   
+3. **車流查詢功能**（任務 8, 16）：100% 完成
+   - 路線車流查詢
+   - 交通事故資訊
+   
+4. **經常性路線管理**（任務 10, 17）：100% 完成
+   - 新增、查看、編輯、刪除路線
+   
+5. **通知服務**（任務 11, 19）：100% 完成
+   - 定時監控任務
+   - 通知去重和時段過濾
+   
+6. **使用者配置**（任務 12, 14）：100% 完成
+   - TDX API 金鑰配置
+   - Backend 連線配置
+   
+7. **Bot 指令處理**（任務 13-17）：100% 完成
+   - 所有核心指令實作完成
+   
+8. **部署和文件**（任務 20）：100% 完成
+   - Supabase 部署指南
+   - GitHub Actions CI/CD
+   - 完整功能文件
+
+### 🚧 待完成功能
+1. **測試**（任務 1.1, 2.2, 2.4, 3.3, 4.2, 5.2-5.3, 6.2-6.3, 7.2-7.3, 8.2-8.3, 10.2-10.3, 11.2-11.3, 12.2-12.3, 13.2-13.3, 14.4, 15.2, 16.2, 17.2, 19.3, 21）
+   - 屬性測試（fast-check）
+   - 單元測試（Jest）
+   - 整合測試
+   - 端到端測試
+   
+2. **最終優化**（任務 22-23）
+   - 程式碼審查和重構
+   - 測試覆蓋率檢查
+   - 效能優化
+
+### 📊 完成度統計
+- 核心功能：100% ✅
+- 測試：0% ⏳
+- 文件：100% ✅
+- 部署：100% ✅
+- 總體進度：約 75%
+
 ## Implementation Order Recommendation
 
 建議實作順序：
-1. 任務 1-9：建立核心基礎設施和服務（約 40% 工作量）
-2. 任務 10-14：實作路線管理和配置功能（約 20% 工作量）
-3. 任務 15-17：實作使用者指令和互動（約 20% 工作量）
-4. 任務 18-20：實作監控任務和部署（約 10% 工作量）
-5. 任務 21-23：整合測試和最終優化（約 10% 工作量）
+1. ✅ 任務 1-9：建立核心基礎設施和服務（約 40% 工作量）
+2. ✅ 任務 10-14：實作路線管理和配置功能（約 20% 工作量）
+3. ✅ 任務 15-17：實作使用者指令和互動（約 20% 工作量）
+4. ✅ 任務 18-20：實作監控任務和部署（約 10% 工作量）
+5. ⏳ 任務 21-23：整合測試和最終優化（約 10% 工作量）
 
 ## Testing Strategy Summary
 

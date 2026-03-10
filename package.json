@@ -17,7 +17,8 @@
     "webhook:set": "ts-node scripts/setup-webhook.ts set",
     "webhook:delete": "ts-node scripts/setup-webhook.ts delete",
     "webhook:info": "ts-node scripts/setup-webhook.ts info",
-    "test-webhook": "ts-node scripts/test-webhook.ts"
+    "test-webhook": "ts-node scripts/test-webhook.ts",
+    "setup-bot-commands": "ts-node scripts/setup-bot-commands.ts"
   },
   "keywords": ["telegram", "bot", "parking", "traffic", "taiwan", "tdx"],
   "author": "",

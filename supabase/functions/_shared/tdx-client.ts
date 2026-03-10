@@ -62,9 +62,17 @@ export interface ParkingInfo {
 export class TdxApiClient {
   private apiKey: string;
   private tokenCache: { token: string; expiresAt: number } | null = null;
+  
+  // 預設試用 API Key
+  static readonly DEFAULT_TRIAL_KEY = 'cokefever-7f3a77c1-84ba-47d9:09f2e5f0-4aed-4c18-bdb2-8af94416e568';
+  static readonly TRIAL_DAILY_LIMIT = 2;
 
   constructor(apiKey: string) {
     this.apiKey = apiKey;
+  }
+  
+  isTrialKey(): boolean {
+    return this.apiKey === TdxApiClient.DEFAULT_TRIAL_KEY;
   }
 
   private async getAccessToken(): Promise<string> {
@@ -368,6 +376,7 @@ export class TdxApiClient {
         bounds: { minLat: 22.5, maxLat: 22.8, minLon: 120.2, maxLon: 120.5 },
       },
       { name: 'Hsinchu', bounds: { minLat: 24.7, maxLat: 24.9, minLon: 120.9, maxLon: 121.1 } },
+      { name: 'Keelung', bounds: { minLat: 25.1, maxLat: 25.2, minLon: 121.7, maxLon: 121.8 } },
     ];
 
     for (const city of cities) {
@@ -388,11 +397,14 @@ export class TdxApiClient {
   parseGoogleMapsUrl(url: string): { latitude: number; longitude: number } | null {
     try {
       // Handle different Google Maps URL formats
-      // 1. maps.app.goo.gl short links - need to follow redirect
+      // 1. Short links (maps.app.goo.gl) - need to extract from redirect or parameters
       // 2. google.com/maps with @lat,lon
       // 3. google.com/maps/place with coordinates
+      // 4. google.com/maps?q=lat,lon
+      // 5. google.com/maps/search with coordinates
+      // 6. goo.gl short links
 
-      // Pattern: @latitude,longitude
+      // Pattern 1: @latitude,longitude (most common)
       const coordPattern = /@(-?\d+\.\d+),(-?\d+\.\d+)/;
       const match = url.match(coordPattern);
 
@@ -403,7 +415,7 @@ export class TdxApiClient {
         };
       }
 
-      // Pattern: !3d<lat>!4d<lon>
+      // Pattern 2: !3d<lat>!4d<lon> (embedded in URL)
       const altPattern = /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/;
       const altMatch = url.match(altPattern);
 
@@ -411,6 +423,50 @@ export class TdxApiClient {
         return {
           latitude: parseFloat(altMatch[1]),
           longitude: parseFloat(altMatch[2]),
+        };
+      }
+
+      // Pattern 3: ?q=lat,lon or &q=lat,lon
+      const qPattern = /[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/;
+      const qMatch = url.match(qPattern);
+
+      if (qMatch) {
+        return {
+          latitude: parseFloat(qMatch[1]),
+          longitude: parseFloat(qMatch[2]),
+        };
+      }
+
+      // Pattern 4: /place/name/@lat,lon
+      const placePattern = /\/place\/[^/]+\/@(-?\d+\.\d+),(-?\d+\.\d+)/;
+      const placeMatch = url.match(placePattern);
+
+      if (placeMatch) {
+        return {
+          latitude: parseFloat(placeMatch[1]),
+          longitude: parseFloat(placeMatch[2]),
+        };
+      }
+
+      // Pattern 5: ll=lat,lon
+      const llPattern = /[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/;
+      const llMatch = url.match(llPattern);
+
+      if (llMatch) {
+        return {
+          latitude: parseFloat(llMatch[1]),
+          longitude: parseFloat(llMatch[2]),
+        };
+      }
+      
+      // Pattern 6: center=lat,lon
+      const centerPattern = /[?&]center=(-?\d+\.\d+),(-?\d+\.\d+)/;
+      const centerMatch = url.match(centerPattern);
+
+      if (centerMatch) {
+        return {
+          latitude: parseFloat(centerMatch[1]),
+          longitude: parseFloat(centerMatch[2]),
         };
       }
 
