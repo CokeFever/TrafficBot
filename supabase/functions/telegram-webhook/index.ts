@@ -351,9 +351,9 @@ async function handleMapsUrl(
     return;
   }
 
-  // Parse URL using TdxApiClient (doesn't need real API key for parsing)
+  // Parse URL using TdxApiClient (with redirect support for short links)
   const tempClient = new TdxApiClient('temp:temp');
-  const coords = tempClient.parseGoogleMapsUrl(url);
+  const coords = await tempClient.parseGoogleMapsUrlWithRedirect(url);
 
   if (!coords) {
     await sendMessage(
@@ -530,7 +530,7 @@ async function handleParkingQuery(
     // Add trial mode notice
     if (isTrialMode) {
       const usage = await getTrialUsage(userId, supabase);
-      message += `\n\n💡 試用模式：今日已使用 ${usage.usage_count}/${TdxApiClient.TRIAL_DAILY_LIMIT} 次\n使用 /setup 設定你的 API Key 以解除限制`;
+      message += `\n\n💡 今日已試用 ${usage.usage_count}/${TdxApiClient.TRIAL_DAILY_LIMIT} 次\n請申請 TDX API Key 並使用 /setup 設定`;
     }
     
     await sendMessage(chatId, message, botToken, { parse_mode: 'Markdown' });

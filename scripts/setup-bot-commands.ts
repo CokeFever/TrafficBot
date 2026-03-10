@@ -31,7 +31,7 @@ async function setupBotCommands() {
       body: JSON.stringify({ commands }),
     });
 
-    const result = await response.json();
+    const result = await response.json() as any;
 
     if (result.ok) {
       console.log('✅ Bot commands set successfully!');

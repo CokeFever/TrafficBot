@@ -476,4 +476,36 @@ export class TdxApiClient {
       return null;
     }
   }
+
+  async parseGoogleMapsUrlWithRedirect(url: string): Promise<{ latitude: number; longitude: number } | null> {
+    try {
+      // First try direct parsing
+      const directResult = this.parseGoogleMapsUrl(url);
+      if (directResult) {
+        return directResult;
+      }
+
+      // If it's a short link, try to follow redirect
+      if (url.includes('maps.app.goo.gl') || url.includes('goo.gl/maps')) {
+        console.log('Detected short link, following redirect...');
+        
+        // Follow redirect to get full URL
+        const response = await fetch(url, {
+          method: 'HEAD',
+          redirect: 'follow',
+        });
+        
+        const fullUrl = response.url;
+        console.log('Redirected to:', fullUrl);
+        
+        // Try parsing the full URL
+        return this.parseGoogleMapsUrl(fullUrl);
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Error parsing Google Maps URL with redirect:', error);
+      return null;
+    }
+  }
 }

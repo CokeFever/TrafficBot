@@ -117,13 +117,20 @@ git push origin main
 ## ⚠️ 如果遇到問題
 
 ### Bot Commands 沒出現？
-```bash
-# 重新執行設定腳本
-npx ts-node scripts/setup-bot-commands.ts
 
-# 或在 Telegram 重新啟動 Bot
-發送: /start
+**這是正常的！** Telegram 有快取機制。
+
+**解決方法：**
+1. 在 Telegram 切換到其他對話
+2. 再切換回 Bot 對話
+3. 輸入 `/` 應該就能看到指令列表了
+
+**驗證 Commands 是否設定成功：**
+```bash
+npx ts-node scripts/verify-bot-commands.ts
 ```
+
+**詳細說明：** 查看 `BOT_COMMANDS_TROUBLESHOOTING.md`
 
 ### GitHub Action 失敗？
 1. 前往 GitHub Actions 頁面查看錯誤日誌
