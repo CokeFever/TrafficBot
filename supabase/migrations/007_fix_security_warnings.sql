@@ -54,12 +54,12 @@ $$;
 -- Fix 3: RLS Policy Always True - trial_usage
 -- ============================================================================
 
--- Drop the overly permissive policy
+-- Drop the overly permissive policy (if exists)
 DROP POLICY IF EXISTS "Service role can manage trial usage for ALL" ON trial_usage;
 
--- Create more restrictive policies for service role
--- Service role should only access trial_usage through the application logic
--- We use a function to check if the caller is the service role
+-- Drop existing policy if it exists (to avoid conflict)
+DROP POLICY IF EXISTS "Service role has full access to trial_usage" ON trial_usage;
+DROP POLICY IF EXISTS "Users can read their own trial usage" ON trial_usage;
 
 -- Create a helper function to check if caller is service role
 CREATE OR REPLACE FUNCTION is_service_role()
