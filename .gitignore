@@ -62,6 +62,3 @@ archive/
 # Temporary files
 tmp/
 temp/
-
-# Fly.io
-.fly/

@@ -278,8 +278,8 @@ Edge Functions 有 150 秒執行時間限制。如果超時：
 # 1. 刪除 Webhook
 npm run webhook:delete
 
-# 2. 部署到 Fly.io 或 Render
-# 參考 docs/deploy-fly.md
+# 2. 使用其他部署方式
+# 注意：本專案主要設計為 Supabase Edge Functions 部署
 ```
 
 ## 支援
