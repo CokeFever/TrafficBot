@@ -7,14 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+## [1.0.0] - 2026-03-12
+
+### Added (Open Source Release)
 - Open source documentation (LICENSE, README, CONTRIBUTING, SECURITY, CODE_OF_CONDUCT)
 - GitHub Actions setup guide
+- Issue and Pull Request templates
 - Comprehensive security documentation
+- GitHub Labels configuration
 
 ### Changed
 - Trial API Key now uses environment variables instead of hardcoded values
 - Improved RLS policies for better security
+- Split service role policies by operation (SELECT, INSERT, UPDATE, DELETE)
 
 ### Removed
 - `/routine` feature and related code (routes management)
@@ -22,16 +27,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 39 temporary documentation files (moved to archive/)
 
 ### Fixed
-- Supabase Security Advisor warnings
+- Supabase Security Advisor warnings (function search_path and RLS policies)
 - TypeScript errors in tdx-client.ts
 - Hardcoded API keys in test files
 
 ### Security
 - Fixed function search_path security issues
-- Improved RLS policies for trial_usage table
+- Improved RLS policies for trial_usage table with operation-specific validation
 - Added is_service_role helper function
-
-## [1.0.0] - 2026-03-12
+- Environment variable management for sensitive data
 
 ### Added
 - 🅿️ Parking availability search feature
