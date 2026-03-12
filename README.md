@@ -4,6 +4,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Deploy to Supabase](https://github.com/CokeFever/trafficbot/actions/workflows/deploy-supabase.yml/badge.svg)](https://github.com/CokeFever/trafficbot/actions/workflows/deploy-supabase.yml)
+[![GitHub issues](https://img.shields.io/github/issues/CokeFever/trafficbot)](https://github.com/CokeFever/trafficbot/issues)
+[![GitHub stars](https://img.shields.io/github/stars/CokeFever/trafficbot)](https://github.com/CokeFever/trafficbot/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/CokeFever/trafficbot)](https://github.com/CokeFever/trafficbot/network)
 
 ## ✨ 功能特色
 

@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 📖 Documentation
+    url: https://github.com/CokeFever/trafficbot/tree/main/docs
+    about: 查看完整文件
+  - name: 💬 Discussions
+    url: https://github.com/CokeFever/trafficbot/discussions
+    about: 在 Discussions 中提問或討論
+  - name: 🔒 Security Issue
+    url: https://github.com/CokeFever/trafficbot/security/advisories/new
+    about: 回報安全性問題（私密）

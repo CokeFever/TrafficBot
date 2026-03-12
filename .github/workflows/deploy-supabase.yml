@@ -11,10 +11,10 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
 
@@ -38,7 +38,15 @@ jobs:
           supabase functions deploy telegram-webhook --no-verify-jwt
 
       - name: Deployment Summary
+        if: success()
         run: |
           echo "✅ Deployment completed successfully!"
           echo "Function URL: https://yqpigatgtxvytmkxumxu.supabase.co/functions/v1/telegram-webhook"
           echo "⚠️  Note: JWT verification is disabled for this function"
+      
+      - name: Deployment Failed
+        if: failure()
+        run: |
+          echo "❌ Deployment failed!"
+          echo "Please check the logs above for details."
+          exit 1

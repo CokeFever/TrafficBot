@@ -1,0 +1,142 @@
+# GitHub Labels Configuration
+# 這個檔案定義了專案使用的所有 labels
+# 可以使用 GitHub CLI 或 API 來批次建立這些 labels
+
+# Type Labels (類型)
+- name: bug
+  color: d73a4a
+  description: 有問題需要修復
+
+- name: enhancement
+  color: a2eeef
+  description: 新功能或改進請求
+
+- name: documentation
+  color: 0075ca
+  description: 文件相關的改進或新增
+
+- name: question
+  color: d876e3
+  description: 需要更多資訊或協助
+
+- name: security
+  color: ee0701
+  description: 安全性相關問題
+
+# Priority Labels (優先級)
+- name: priority:critical
+  color: b60205
+  description: 緊急且重要，需要立即處理
+
+- name: priority:high
+  color: d93f0b
+  description: 高優先級，應盡快處理
+
+- name: priority:medium
+  color: fbca04
+  description: 中等優先級
+
+- name: priority:low
+  color: 0e8a16
+  description: 低優先級，可以稍後處理
+
+# Status Labels (狀態)
+- name: status:in-progress
+  color: yellow
+  description: 正在處理中
+
+- name: status:blocked
+  color: red
+  description: 被阻擋，無法繼續
+
+- name: status:needs-review
+  color: orange
+  description: 需要審查
+
+- name: status:ready
+  color: green
+  description: 準備好可以處理
+
+- name: status:wontfix
+  color: white
+  description: 不會修復
+
+# Component Labels (元件)
+- name: component:bot
+  color: 1d76db
+  description: Telegram Bot 相關
+
+- name: component:database
+  color: 5319e7
+  description: 資料庫相關
+
+- name: component:api
+  color: 0052cc
+  description: API 整合相關
+
+- name: component:deployment
+  color: 006b75
+  description: 部署相關
+
+- name: component:docs
+  color: 0075ca
+  description: 文件相關
+
+# Feature Labels (功能)
+- name: feature:parking
+  color: c5def5
+  description: 停車位查詢功能
+
+- name: feature:traffic
+  color: c5def5
+  description: 路況查詢功能
+
+- name: feature:setup
+  color: c5def5
+  description: 設定功能
+
+# Size Labels (大小)
+- name: size:XS
+  color: 3CBF00
+  description: 極小的變更 (< 10 行)
+
+- name: size:S
+  color: 5D9801
+  description: 小變更 (10-50 行)
+
+- name: size:M
+  color: 7F7203
+  description: 中等變更 (50-200 行)
+
+- name: size:L
+  color: A14C05
+  description: 大變更 (200-500 行)
+
+- name: size:XL
+  color: C32607
+  description: 極大變更 (> 500 行)
+
+# Special Labels (特殊)
+- name: good first issue
+  color: 7057ff
+  description: 適合新手的 issue
+
+- name: help wanted
+  color: 008672
+  description: 需要社群協助
+
+- name: duplicate
+  color: cfd3d7
+  description: 重複的 issue 或 PR
+
+- name: invalid
+  color: e4e669
+  description: 無效的 issue
+
+- name: breaking change
+  color: d93f0b
+  description: 破壞性變更
+
+- name: dependencies
+  color: 0366d6
+  description: 相依套件更新
