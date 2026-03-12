@@ -28,8 +28,8 @@ CREATE POLICY "Service role can insert trial_usage"
     -- Ensure user_id is provided
     user_id IS NOT NULL
     AND user_id != ''
-    -- Ensure date is provided
-    AND date IS NOT NULL
+    -- Ensure usage_count is valid
+    AND usage_count >= 0
   );
 
 -- Service role can UPDATE - use a more specific check
@@ -70,7 +70,7 @@ COMMENT ON POLICY "Service role can read trial_usage" ON trial_usage IS
   'Service role (Edge Functions) can read all trial usage records for monitoring and management.';
 
 COMMENT ON POLICY "Service role can insert trial_usage" ON trial_usage IS 
-  'Service role can insert trial usage records with validation: user_id and date must be provided.';
+  'Service role can insert trial usage records with validation: user_id must be provided and usage_count must be non-negative.';
 
 COMMENT ON POLICY "Service role can update trial_usage" ON trial_usage IS 
   'Service role can update trial usage records with validation: user_id cannot be null or empty.';
