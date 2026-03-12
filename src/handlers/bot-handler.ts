@@ -35,7 +35,6 @@ export class BotHandlerImpl implements BotHandler {
     this.bot.command('help', (ctx) => this.handleHelpCommand(ctx));
     this.bot.command('parking', (ctx) => this.routeToHandler(ctx, 'parking'));
     this.bot.command('traffic', (ctx) => this.routeToHandler(ctx, 'traffic'));
-    this.bot.command('routes', (ctx) => this.routeToHandler(ctx, 'routes'));
     this.bot.command('setup', (ctx) => this.routeToHandler(ctx, 'setup'));
     this.bot.command('config', (ctx) => this.routeToHandler(ctx, 'config'));
     this.bot.command('reset', (ctx) => this.routeToHandler(ctx, 'reset'));
@@ -147,11 +146,7 @@ export class BotHandlerImpl implements BotHandler {
 
 ✅ 目前可用功能：
 • 停車位搜尋
-
-🚧 開發中功能：
-• 車流查詢
-• 經常性路線管理
-• 主動推播通知
+• 路況查詢
 
 請先使用 /setup 完成初始配置
 輸入 /help 查看詳細說明
@@ -166,10 +161,7 @@ export class BotHandlerImpl implements BotHandler {
 
 ✅ 可用功能：
 /parking - 搜尋附近停車位
-
-🚧 開發中功能：
-/traffic - 查詢路線車流（開發中）
-/routes - 管理經常性路線（開發中）
+/traffic - 查詢附近路況
 
 ⚙️ 設定：
 /setup - 初始配置

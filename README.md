@@ -1,140 +1,159 @@
-# Telegram Parking Bot 🚗
+# 🚗 TrafficBot - 台灣停車與路況查詢 Telegram Bot
 
-台灣停車位查詢 Telegram Bot，整合 TDX API 提供即時停車資訊。
+一個整合台灣交通部 TDX API 的 Telegram Bot，提供即時停車位查詢與路況資訊。
 
-## 功能特色
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Deploy to Supabase](https://github.com/CokeFever/trafficbot/actions/workflows/deploy-supabase.yml/badge.svg)](https://github.com/CokeFever/trafficbot/actions/workflows/deploy-supabase.yml)
 
-✅ **停車場查詢**
-- 基於當前位置或目的地搜尋
-- 支援 500m、1km、2km 搜尋範圍
-- 顯示即時車位數量
-- 提供導航連結
+## ✨ 功能特色
 
-🚧 **開發中功能**
-- 車流查詢
-- 經常性路線管理
-- 主動推播通知
+### 🅿️ 停車位查詢
+- 搜尋附近停車場（250m / 500m / 1km 範圍）
+- 顯示即時剩餘車位數
+- 提供收費資訊與距離
+- 支援機車停車位查詢
+- 試用模式：每人每天免費查詢 2 次
 
-## 快速開始
+### 🚦 路況查詢
+- 查詢附近路況（250m / 500m / 1km 範圍）
+- 整合 CMS（交通訊息看板）與 VD（車輛偵測器）資料
+- 智慧過濾：僅顯示異常路況（速度偏離 ±10% 以上）
+- 嚴重度排序：事故 > 壅塞 > 施工 > 車多 > 緩慢
+- 道路分組顯示，避免資訊過載
+- 需要設定 TDX API Key
 
-### 1. 部署到 Supabase
+## 🚀 快速開始
 
+### 前置需求
+
+- Node.js 20+
+- Supabase 帳號
+- Telegram Bot Token（從 [@BotFather](https://t.me/botfather) 取得）
+- TDX API Key（從 [TDX 平台](https://tdx.transportdata.tw/) 申請）
+
+### 安裝步驟
+
+1. Clone 專案
 ```bash
-# Clone 專案
-git clone https://github.com/CokeFever/TrafficBot.git
-cd TrafficBot
+git clone https://github.com/CokeFever/trafficbot.git
+cd trafficbot
+```
 
-# 安裝依賴
+2. 安裝相依套件
+```bash
 npm install
+```
 
+3. 設定環境變數
+```bash
+cp .env.example .env
+# 編輯 .env 填入你的設定
+```
+
+4. 設定 Supabase
+```bash
 # 安裝 Supabase CLI
 npm install -g supabase
 
-# 登入並連結專案
+# 登入 Supabase
 supabase login
+
+# 連結專案
 supabase link --project-ref your-project-ref
 
-# 部署
+# 推送資料庫 migrations
 supabase db push
-supabase functions deploy telegram-webhook
 
-# 設定 Webhook
+# 部署 Edge Functions
+supabase functions deploy telegram-webhook --no-verify-jwt
+```
+
+5. 設定 Telegram Webhook
+```bash
 npm run setup-webhook
 ```
 
-### 2. 使用 Bot
+## 📖 使用說明
 
-1. 在 Telegram 搜尋你的 Bot
-2. 發送 `/start` 開始使用
-3. 發送 `/setup` 配置 TDX API Key
-4. 發送 `/parking 500m` 查詢停車場
+### Bot 指令
 
-## 架構
+- `/start` - 開始使用
+- `/help` - 查看說明
+- `/parking` - 搜尋附近停車位
+- `/traffic` - 查詢附近路況
+- `/setup` - 設定 TDX API Key
+- `/config` - 查看當前配置
+- `/reset` - 重置配置
+
+### 使用流程
+
+#### 停車位查詢
+1. 輸入 `/parking`
+2. 選擇搜尋範圍（250m / 500m / 1km）
+3. 分享你的位置
+4. 查看附近停車場資訊
+
+#### 路況查詢
+1. 輸入 `/setup` 設定 TDX API Key（首次使用）
+2. 輸入 `/traffic`
+3. 選擇搜尋範圍（250m / 500m / 1km）
+4. 分享你的位置
+5. 查看附近路況資訊
+
+## 🏗️ 架構說明
+
+### 技術棧
+
+- **Runtime**: Deno (Supabase Edge Functions)
+- **Database**: PostgreSQL (Supabase)
+- **Bot Framework**: Telegraf
+- **API**: TDX (Transport Data eXchange)
+- **Deployment**: GitHub Actions + Supabase
+
+### 專案結構
 
 ```
-┌─────────────┐
-│  Telegram   │
-│    User     │
-└──────┬──────┘
-       │ Webhook
-       ▼
-┌─────────────────────┐
-│  Supabase Edge      │
-│    Functions        │
-│  (Deno Runtime)     │
-└──────┬──────────────┘
-       │
-       ├─────► TDX API (停車/車流資料)
-       │
-       └─────► Supabase PostgreSQL (使用者資料)
+trafficbot/
+├── src/
+│   ├── handlers/          # Bot 指令處理器
+│   ├── services/          # 業務邏輯服務
+│   ├── models/            # 資料模型
+│   └── utils/             # 工具函式
+├── supabase/
+│   ├── functions/         # Edge Functions
+│   │   ├── telegram-webhook/  # Telegram webhook 處理
+│   │   └── _shared/       # 共用模組
+│   └── migrations/        # 資料庫 migrations
+├── docs/                  # 文件
+├── scripts/               # 工具腳本
+└── .github/workflows/     # CI/CD 配置
 ```
 
-## 技術棧
+## 🔒 安全性
 
-- **前端**: Telegram Bot API
-- **後端**: Supabase Edge Functions (Deno)
-- **資料庫**: Supabase PostgreSQL
-- **API**: TDX API (台灣交通部)
-- **語言**: TypeScript
+- 使用 Row Level Security (RLS) 保護資料庫
+- TDX API Key 加密儲存
+- 環境變數管理敏感資訊
+- 詳見 [SECURITY.md](SECURITY.md)
 
-## 指令列表
+## 🤝 貢獻指南
 
-| 指令 | 說明 | 範例 |
-|------|------|------|
-| `/start` | 開始使用 | `/start` |
-| `/help` | 查看幫助 | `/help` |
-| `/setup` | 配置 API Key | `/setup` |
-| `/config` | 查看配置 | `/config` |
-| `/reset` | 重置配置 | `/reset` |
-| `/parking [範圍]` | 查詢停車場 | `/parking 500m` |
-| `/traffic [範圍]` | 查詢車流 (開發中) | `/traffic 1km` |
-| `/routes` | 管理路線 (開發中) | `/routes` |
+歡迎貢獻！請參考 [CONTRIBUTING.md](CONTRIBUTING.md)
 
-## 文檔
+## 📄 授權
 
-- [快速開始](docs/quick-start.md)
-- [部署指南](docs/deploy-supabase.md)
-- [使用者指南](docs/user-guide.md)
-- [TDX API 指南](docs/tdx-api-guide.md)
+本專案採用 MIT 授權 - 詳見 [LICENSE](LICENSE) 檔案
 
-## 開發
+## 🙏 致謝
 
-### 本地測試
+- [TDX 運輸資料流通服務平台](https://tdx.transportdata.tw/)
+- [Supabase](https://supabase.com/)
+- [Telegraf](https://telegraf.js.org/)
 
-```bash
-# 啟動本地 Supabase
-supabase start
+## 📞 聯絡方式
 
-# 運行 Edge Function
-supabase functions serve telegram-webhook --env-file .env
+如有問題或建議，請開 [Issue](https://github.com/CokeFever/trafficbot/issues)
 
-# 測試 Webhook
-npm run test-webhook
-```
+---
 
-### 查看日誌
-
-```bash
-supabase functions logs telegram-webhook --follow
-```
-
-## 費用
-
-完全免費！使用 Supabase 免費方案：
-- 500MB 資料庫
-- 500K Edge Function 請求/月
-- 2GB 頻寬/月
-
-## 貢獻
-
-歡迎提交 Issue 和 Pull Request！
-
-## 授權
-
-MIT License
-
-## 支援
-
-- [GitHub Issues](https://github.com/CokeFever/TrafficBot/issues)
-- [Supabase 文檔](https://supabase.com/docs)
-- [TDX API 文檔](https://tdx.transportdata.tw/)
+Made with ❤️ in Taiwan

@@ -37,6 +37,28 @@ coverage/
 # Test scripts (may contain sensitive data)
 test-*.ts
 
+# Development notes and summaries (keep locally, don't commit)
+*_SUMMARY*.md
+*_COMPLETE*.md
+*_GUIDE_*.md
+*_RESULTS*.md
+*_CHECKLIST*.md
+FIXES_*.md
+IMPROVEMENTS_*.md
+SUCCESS_*.md
+DEPLOY_NOW.md
+BOT_COMMANDS_TROUBLESHOOTING.md
+ROUTINE_ROUTE_FEASIBILITY.md
+RESEARCH_SUMMARY.md
+QUICK_REFERENCE*.md
+QUICK_START.md
+
+# Archive directory
+archive/
+
+# Cleanup notes
+.cleanup-notes.md
+
 # Temporary files
 tmp/
 temp/

@@ -87,36 +87,6 @@ export interface TrafficEvent {
   startTime: Date;
 }
 
-export interface TimeRange {
-  startHour: number; // 0-23
-  endHour: number; // 0-23
-}
-
-export interface NotificationPreferences {
-  enabled: boolean;
-  timeRanges?: TimeRange[];
-}
-
-export interface RoutineRoute {
-  id: string;
-  userId: string;
-  name: string;
-  origin: Coordinates;
-  destination: Coordinates;
-  createdAt: Date;
-  updatedAt: Date;
-  notificationPreferences?: NotificationPreferences;
-}
-
-export interface NotificationRecord {
-  id: string;
-  routeId: string;
-  userId: string;
-  trafficStatus: string;
-  eventIds: string[];
-  sentAt: Date;
-}
-
 export interface BackendConfig {
   type: 'supabase';
   connectionString: string;

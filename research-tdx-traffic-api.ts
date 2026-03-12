@@ -3,8 +3,14 @@ import * as dotenv from 'dotenv';
 
 dotenv.config();
 
-const TDX_CLIENT_ID = process.env.TDX_CLIENT_ID || 'cokefever-7f3a77c1-84ba-47d9';
-const TDX_CLIENT_SECRET = process.env.TDX_CLIENT_SECRET || '09f2e5f0-4aed-4c18-bdb2-8af94416e568';
+const TDX_CLIENT_ID = process.env.TDX_CLIENT_ID || '';
+const TDX_CLIENT_SECRET = process.env.TDX_CLIENT_SECRET || '';
+
+if (!TDX_CLIENT_ID || !TDX_CLIENT_SECRET) {
+  console.error('❌ Error: TDX_CLIENT_ID and TDX_CLIENT_SECRET must be set in .env file');
+  console.error('Please copy .env.example to .env and fill in your TDX API credentials');
+  process.exit(1);
+}
 
 interface TokenResponse {
   access_token: string;

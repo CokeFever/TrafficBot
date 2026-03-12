@@ -125,9 +125,6 @@ async function handleCommand(
     case 'traffic':
       await handleTrafficCommand(args, chatId, userId, supabase, botToken);
       break;
-    case 'routes':
-      await handleRoutesCommand(args, chatId, userId, supabase, botToken);
-      break;
     case 'setup':
       await handleSetupCommand(chatId, userId, supabase, botToken);
       break;
@@ -240,15 +237,6 @@ async function handleTrafficCommand(
 
 async function handleRoutesCommand(
   args: string[],
-  chatId: number,
-  userId: string,
-  supabase: any,
-  botToken: string
-) {
-  await sendMessage(chatId, '🚧 經常性路線管理功能開發中', botToken);
-}
-
-async function handleSetupCommand(
   chatId: number,
   userId: string,
   supabase: any,
@@ -830,9 +818,6 @@ function getHelpMessage(): string {
 /traffic [半徑] - 查詢附近路況
   例如：/traffic 500m 或 /traffic 1km
   顯示壅塞、事故、施工等資訊
-
-🚧 開發中功能：
-/routes - 管理經常性路線（開發中）
 
 ⚙️ 設定：
 /setup - 設定 TDX API Key

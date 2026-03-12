@@ -262,7 +262,7 @@ TDX 提供更多 API，例如：
 
 - [Supabase 部署指南](deploy-supabase.md)
 - [使用者手冊](user-guide.md)
-- [GitHub Repository](https://github.com/your-repo)
+- [GitHub Repository](https://github.com/CokeFever/trafficbot)
 
 ---
 

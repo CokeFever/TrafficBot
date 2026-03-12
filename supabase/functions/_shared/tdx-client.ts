@@ -1,6 +1,13 @@
 // TDX API Client for Deno runtime
 // Based on lessons learned from previous implementation
 
+// Deno global type declaration for TypeScript
+declare const Deno: {
+  env: {
+    get(key: string): string | undefined;
+  };
+};
+
 interface TdxTokenResponse {
   access_token: string;
   expires_in: number;
@@ -74,8 +81,9 @@ export class TdxApiClient {
   private apiKey: string;
   private tokenCache: { token: string; expiresAt: number } | null = null;
   
-  // 預設試用 API Key
-  static readonly DEFAULT_TRIAL_KEY = 'cokefever-7f3a77c1-84ba-47d9:09f2e5f0-4aed-4c18-bdb2-8af94416e568';
+  // 預設試用 API Key - 從環境變數讀取
+  // 注意：試用 Key 應該在 Supabase Dashboard 的 Edge Function Secrets 中設定
+  static readonly DEFAULT_TRIAL_KEY = Deno.env.get('TDX_TRIAL_API_KEY') || '';
   static readonly TRIAL_DAILY_LIMIT = 2;
 
   constructor(apiKey: string) {
@@ -279,7 +287,7 @@ export class TdxApiClient {
           fareDescription,
         };
       })
-      .filter((p): p is ParkingInfo => p !== null);
+      .filter((p): p is NonNullable<typeof p> => p !== null) as ParkingInfo[];
   }
 
   private parseSpecialSpaces(description: string): {
