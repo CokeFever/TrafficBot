@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-03-17
+
+### Changed
+- Increased trial daily limit from 2 to 5 queries
+- Updated help message with clearer formatting and TDX registration link
+- Updated welcome message
+
+### Fixed
+- Supabase Security Advisor: removed old `trial_usage` ALL policy
+- Help message no longer shows web page preview for links
+- Removed Fly.io deployment documentation (project uses Supabase only)
+
 ## [1.0.0] - 2026-03-12
 
 ### Added (Open Source Release)
