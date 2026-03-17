@@ -117,7 +117,7 @@ async function handleCommand(
       await sendMessage(chatId, getWelcomeMessage(), botToken);
       break;
     case 'help':
-      await sendMessage(chatId, getHelpMessage(), botToken, { disable_web_page_preview: true });
+      await sendMessage(chatId, getHelpMessage(), botToken, { disable_web_page_preview: true, parse_mode: 'Markdown' });
       break;
     case 'parking':
       await handleParkingCommand(args, chatId, userId, supabase, botToken);
@@ -816,7 +816,7 @@ function getHelpMessage(): string {
 📍 位置可以直接使用 Telegram 分享位置 或 貼上 Google Maps 連結
 
 ⚙️ 設定：
-/setup - 設定個人 TDX API Key
+/setup - 設定個人 TDX API Key \([免費註冊](https://tdx.transportdata.tw/register)\)
 /config - 查看目前設定狀況
 /reset - 重置設定 (清除 API Client ID & Secret)
 
