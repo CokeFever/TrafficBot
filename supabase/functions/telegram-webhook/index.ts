@@ -788,19 +788,13 @@ async function validateTdxApiKey(apiKey: string): Promise<boolean> {
 
 function getWelcomeMessage(): string {
   return `
-🚗 歡迎使用停車位與路況查詢 Bot！
+🚗 歡迎使用泊車小弟！
 
-✅ 目前可用功能：
-• 停車位搜尋
-• 路況查詢
+✅ 功能：
+• /parking - 查詢附近停車位
+• /traffic - 查詢附近路況
 
-🚧 開發中功能：
-• 經常性路線管理
-• 主動推播通知
-
-💡 試用模式：
-每人每天可免費查詢 2 次停車位
-路況查詢需要設定 TDX API Key
+💡 試用：每天可免費查詢 5 次，設定個人 API Key 後無限制
 
 輸入 /help 查看詳細說明
   `.trim();
@@ -808,26 +802,26 @@ function getWelcomeMessage(): string {
 
 function getHelpMessage(): string {
   return `
-📖 指令說明
+📖 泊車小弟 使用說明
 
-✅ 可用功能：
-/parking [半徑] - 搜尋附近停車位
-  例如：/parking 500m 或 /parking 1km
-  也可以直接分享位置或 Google Maps 連結
+✅ 功能：
+/parking 查詢附近車位 [250m, 500m, 1km]
+  例如：/parking 或 /parking 500m
+  顯示車位、導航、空位、價格等資訊
 
-/traffic [半徑] - 查詢附近路況
-  例如：/traffic 500m 或 /traffic 1km
+/traffic 查詢附近路況 [250m, 500m, 1km]
+  例如：/traffic 或 /traffic 1km
   顯示壅塞、事故、施工等資訊
 
+📍 位置可以直接使用 Telegram 分享位置 或 貼上 Google Maps 連結
+
 ⚙️ 設定：
-/setup - 設定 TDX API Key
-/config - 查看當前配置
-/reset - 重置配置
+/setup - 設定個人 TDX API Key
+/config - 查看目前設定狀況
+/reset - 重置設定 (清除 API Client ID & Secret)
 
-💡 試用模式：
-停車位查詢：每人每天可免費查詢 2 次
-路況查詢：需要設定 TDX API Key
+💡 試用：每天可免費查詢 5 次，設定個人 API Key 後無限制
 
-需要協助？請參考使用手冊
+有問題請洽 https://ixo.app
   `.trim();
 }

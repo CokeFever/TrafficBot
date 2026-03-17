@@ -84,7 +84,7 @@ export class TdxApiClient {
   // 預設試用 API Key - 從環境變數讀取
   // 注意：試用 Key 應該在 Supabase Dashboard 的 Edge Function Secrets 中設定
   static readonly DEFAULT_TRIAL_KEY = Deno.env.get('TDX_TRIAL_API_KEY') || '';
-  static readonly TRIAL_DAILY_LIMIT = 2;
+  static readonly TRIAL_DAILY_LIMIT = 5;
 
   constructor(apiKey: string) {
     this.apiKey = apiKey;

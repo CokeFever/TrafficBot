@@ -173,7 +173,7 @@ export function formatError(error: Error): string {
   }
   
   if (error.message.includes('trial limit exceeded')) {
-    return '❌ 試用次數已達每日上限（2次）\n\n' +
+    return '❌ 試用次數已達每日上限（5次）\n\n' +
            '請前往 TDX 平台申請免費 API Key：\n' +
            'https://tdx.transportdata.tw/\n\n' +
            '申請後使用 /setup 設定你的 API Key';
