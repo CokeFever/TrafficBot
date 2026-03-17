@@ -117,7 +117,7 @@ async function handleCommand(
       await sendMessage(chatId, getWelcomeMessage(), botToken);
       break;
     case 'help':
-      await sendMessage(chatId, getHelpMessage(), botToken);
+      await sendMessage(chatId, getHelpMessage(), botToken, { disable_web_page_preview: true });
       break;
     case 'parking':
       await handleParkingCommand(args, chatId, userId, supabase, botToken);
