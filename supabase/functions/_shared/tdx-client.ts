@@ -498,19 +498,22 @@ export class TdxApiClient {
 
   async parseGoogleMapsUrlWithRedirect(url: string): Promise<{ latitude: number; longitude: number } | null> {
     try {
+      // Remove query parameters from short links (e.g., ?g_st=ac)
+      const cleanUrl = url.split('?')[0];
+      
       // First try direct parsing
-      const directResult = this.parseGoogleMapsUrl(url);
+      const directResult = this.parseGoogleMapsUrl(cleanUrl);
       if (directResult) {
         return directResult;
       }
 
       // If it's a short link, try to follow redirect
-      if (url.includes('maps.app.goo.gl') || url.includes('goo.gl/maps')) {
+      if (cleanUrl.includes('maps.app.goo.gl') || cleanUrl.includes('goo.gl/maps')) {
         console.log('Detected short link, following redirect...');
         
         // Follow redirect to get full URL
-        const response = await fetch(url, {
-          method: 'HEAD',
+        const response = await fetch(cleanUrl, {
+          method: 'GET',
           redirect: 'follow',
         });
         
