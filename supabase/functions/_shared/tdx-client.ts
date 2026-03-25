@@ -489,6 +489,28 @@ export class TdxApiClient {
         };
       }
 
+      // Pattern 7: /maps/place/@lat,lon (without place name)
+      const placeOnlyPattern = /\/maps\/place\/@(-?\d+\.\d+),(-?\d+\.\d+)/;
+      const placeOnlyMatch = url.match(placeOnlyPattern);
+
+      if (placeOnlyMatch) {
+        return {
+          latitude: parseFloat(placeOnlyMatch[1]),
+          longitude: parseFloat(placeOnlyMatch[2]),
+        };
+      }
+
+      // Pattern 8: /maps/@lat,lon (direct coordinate format)
+      const mapsPattern = /\/maps\/@(-?\d+\.\d+),(-?\d+\.\d+)/;
+      const mapsMatch = url.match(mapsPattern);
+
+      if (mapsMatch) {
+        return {
+          latitude: parseFloat(mapsMatch[1]),
+          longitude: parseFloat(mapsMatch[2]),
+        };
+      }
+
       return null;
     } catch (error) {
       console.error('Error parsing Google Maps URL:', error);
