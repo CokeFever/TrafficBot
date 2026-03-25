@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-03-17
+
+### Fixed
+- Improved Google Maps URL parsing for short links with query parameters (e.g., `?g_st=ac`)
+- Added support for additional Google Maps URL formats (`/maps/@lat,lon` and `/maps/place/@lat,lon`)
+- Changed redirect method from HEAD to GET for better compatibility
+
 ## [1.0.1] - 2026-03-17
 
 ### Changed
