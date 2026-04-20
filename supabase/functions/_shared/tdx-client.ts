@@ -415,100 +415,60 @@ export class TdxApiClient {
 
   parseGoogleMapsUrl(url: string): { latitude: number; longitude: number } | null {
     try {
-      // Handle different Google Maps URL formats
-      // 1. Short links (maps.app.goo.gl) - need to extract from redirect or parameters
-      // 2. google.com/maps with @lat,lon
-      // 3. google.com/maps/place with coordinates
-      // 4. google.com/maps?q=lat,lon
-      // 5. google.com/maps/search with coordinates
-      // 6. goo.gl short links
-
       // Pattern 1: @latitude,longitude (most common)
       const coordPattern = /@(-?\d+\.\d+),(-?\d+\.\d+)/;
       const match = url.match(coordPattern);
-
       if (match) {
-        return {
-          latitude: parseFloat(match[1]),
-          longitude: parseFloat(match[2]),
-        };
+        return { latitude: parseFloat(match[1]), longitude: parseFloat(match[2]) };
       }
 
-      // Pattern 2: !3d<lat>!4d<lon> (embedded in URL)
+      // Pattern 2: !3d<lat>!4d<lon> (embedded in URL or HTML)
       const altPattern = /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/;
       const altMatch = url.match(altPattern);
-
       if (altMatch) {
-        return {
-          latitude: parseFloat(altMatch[1]),
-          longitude: parseFloat(altMatch[2]),
-        };
+        return { latitude: parseFloat(altMatch[1]), longitude: parseFloat(altMatch[2]) };
       }
 
       // Pattern 3: ?q=lat,lon or &q=lat,lon
       const qPattern = /[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/;
       const qMatch = url.match(qPattern);
-
       if (qMatch) {
-        return {
-          latitude: parseFloat(qMatch[1]),
-          longitude: parseFloat(qMatch[2]),
-        };
+        return { latitude: parseFloat(qMatch[1]), longitude: parseFloat(qMatch[2]) };
       }
 
-      // Pattern 4: /place/name/@lat,lon
-      const placePattern = /\/place\/[^/]+\/@(-?\d+\.\d+),(-?\d+\.\d+)/;
-      const placeMatch = url.match(placePattern);
-
-      if (placeMatch) {
-        return {
-          latitude: parseFloat(placeMatch[1]),
-          longitude: parseFloat(placeMatch[2]),
-        };
-      }
-
-      // Pattern 5: ll=lat,lon
+      // Pattern 4: ll=lat,lon
       const llPattern = /[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/;
       const llMatch = url.match(llPattern);
-
       if (llMatch) {
-        return {
-          latitude: parseFloat(llMatch[1]),
-          longitude: parseFloat(llMatch[2]),
-        };
+        return { latitude: parseFloat(llMatch[1]), longitude: parseFloat(llMatch[2]) };
       }
       
-      // Pattern 6: center=lat,lon
+      // Pattern 5: center=lat,lon
       const centerPattern = /[?&]center=(-?\d+\.\d+),(-?\d+\.\d+)/;
       const centerMatch = url.match(centerPattern);
-
       if (centerMatch) {
-        return {
-          latitude: parseFloat(centerMatch[1]),
-          longitude: parseFloat(centerMatch[2]),
-        };
+        return { latitude: parseFloat(centerMatch[1]), longitude: parseFloat(centerMatch[2]) };
       }
 
-      // Pattern 7: /maps/place/@lat,lon (without place name)
-      const placeOnlyPattern = /\/maps\/place\/@(-?\d+\.\d+),(-?\d+\.\d+)/;
-      const placeOnlyMatch = url.match(placeOnlyPattern);
-
-      if (placeOnlyMatch) {
-        return {
-          latitude: parseFloat(placeOnlyMatch[1]),
-          longitude: parseFloat(placeOnlyMatch[2]),
-        };
+      // Pattern 6: [null,null,lat,lon] in Google Maps JS data (common in HTML source)
+      const jsArrayPattern = /\[null,null,(-?\d+\.\d{4,}),(-?\d+\.\d{4,})\]/;
+      const jsArrayMatch = url.match(jsArrayPattern);
+      if (jsArrayMatch) {
+        return { latitude: parseFloat(jsArrayMatch[1]), longitude: parseFloat(jsArrayMatch[2]) };
       }
 
-      // Pattern 8: /maps/@lat,lon (direct coordinate format)
-      const mapsPattern = /\/maps\/@(-?\d+\.\d+),(-?\d+\.\d+)/;
-      const mapsMatch = url.match(mapsPattern);
+      // Pattern 7: "lat":22.995,"lng":120.196 or similar JSON patterns
+      const jsonPattern = /"lat(?:itude)?":\s*(-?\d+\.\d+).*?"lng|lon(?:gitude)?":\s*(-?\d+\.\d+)/;
+      const jsonMatch = url.match(jsonPattern);
+      if (jsonMatch) {
+        return { latitude: parseFloat(jsonMatch[1]), longitude: parseFloat(jsonMatch[2]) };
+      }
 
-      if (mapsMatch) {
-        return {
-          latitude: parseFloat(mapsMatch[1]),
-          longitude: parseFloat(mapsMatch[2]),
-        };
+      // Pattern 8: Google Maps APP_INITIALIZATION_STATE with coordinates like [0,0,lat,lon]
+      const appInitPattern = /APP_INITIALIZATION_STATE.*?\[\d+[^[]*\[[\d.e-]+,[\d.e-]+,(-?\d+\.\d{4,}),(-?\d+\.\d{4,})\]/s;
+      const appInitMatch = url.match(appInitPattern);
+      if (appInitMatch) {
+        return { latitude: parseFloat(appInitMatch[1]), longitude: parseFloat(appInitMatch[2]) };
       }
 
       return null;
