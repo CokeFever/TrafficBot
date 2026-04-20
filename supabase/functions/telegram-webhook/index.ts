@@ -342,6 +342,9 @@ async function handleTextMessage(
 
   if (state.command === 'setup') {
     await handleSetupFlow(text, state.step, chatId, userId, supabase, botToken);
+  } else if (state.command === 'parking' || state.command === 'traffic') {
+    // User might be typing a place name (POI search)
+    await handlePoiSearch(text, chatId, userId, supabase, botToken);
   }
 }
 
@@ -403,6 +406,91 @@ async function handleMapsUrl(
       await handleTrafficQuery(coords.latitude, coords.longitude, state.radius, chatId, userId, supabase, botToken);
       await clearUserState(userId, supabase);
     }
+  }
+}
+
+async function handlePoiSearch(
+  text: string,
+  chatId: number,
+  userId: string,
+  supabase: any,
+  botToken: string
+) {
+  const state = await getUserState(userId, supabase);
+  if (!state || !state.command) return;
+
+  const query = text.trim();
+  if (query.length < 2) return;
+
+  console.log('POI search:', query);
+  await sendMessage(chatId, `🔍 搜尋「${query}」...`, botToken);
+
+  try {
+    const nominatimUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&countrycodes=tw`;
+    const response = await fetch(nominatimUrl, {
+      headers: { 'User-Agent': 'TrafficBot/1.0' },
+    });
+
+    if (!response.ok) {
+      await sendMessage(chatId, '❌ 搜尋失敗，請稍後再試', botToken);
+      return;
+    }
+
+    const results = await response.json();
+    if (!results || results.length === 0) {
+      await sendMessage(chatId, '❌ 找不到此地點，請嘗試其他關鍵字或直接分享位置', botToken);
+      return;
+    }
+
+    const place = results[0];
+    const lat = parseFloat(place.lat);
+    const lon = parseFloat(place.lon);
+    const displayName = place.display_name;
+
+    console.log(`POI found: ${displayName} (${lat}, ${lon})`);
+
+    if (state.command === 'parking') {
+      if (state.radius) {
+        await sendMessage(chatId, `📍 ${displayName}`, botToken);
+        await handleParkingQuery(lat, lon, state.radius, chatId, userId, supabase, botToken);
+        await clearUserState(userId, supabase);
+      } else {
+        await saveUserState(userId, { ...state, latitude: lat, longitude: lon }, supabase);
+        await sendMessage(chatId, `📍 ${displayName}\n\n請選擇搜尋範圍：`, botToken, {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '250m', callback_data: 'parking:radius:250' },
+                { text: '500m', callback_data: 'parking:radius:500' },
+                { text: '1km', callback_data: 'parking:radius:1000' },
+              ],
+            ],
+          },
+        });
+      }
+    } else if (state.command === 'traffic') {
+      if (state.radius) {
+        await sendMessage(chatId, `📍 ${displayName}`, botToken);
+        await handleTrafficQuery(lat, lon, state.radius, chatId, userId, supabase, botToken);
+        await clearUserState(userId, supabase);
+      } else {
+        await saveUserState(userId, { ...state, latitude: lat, longitude: lon }, supabase);
+        await sendMessage(chatId, `📍 ${displayName}\n\n請選擇搜尋範圍：`, botToken, {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '250m', callback_data: 'traffic:radius:250' },
+                { text: '500m', callback_data: 'traffic:radius:500' },
+                { text: '1km', callback_data: 'traffic:radius:1000' },
+              ],
+            ],
+          },
+        });
+      }
+    }
+  } catch (error) {
+    console.error('POI search error:', error);
+    await sendMessage(chatId, '❌ 搜尋失敗，請稍後再試', botToken);
   }
 }
 
@@ -819,7 +907,7 @@ function getHelpMessage(): string {
   例如：/traffic 或 /traffic 1km
   顯示壅塞、事故、施工等資訊
 
-📍 位置可以直接使用 Telegram 分享位置 或 貼上 Google Maps 連結
+📍 位置可以直接使用 Telegram 分享位置、貼上 Google Maps 連結、或輸入地點名稱
 
 ⚙️ 設定：
 /setup - 設定個人 TDX API Key \([免費註冊](https://tdx.transportdata.tw/register)\)
