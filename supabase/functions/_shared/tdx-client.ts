@@ -565,43 +565,72 @@ export class TdxApiClient {
       const rawAddress = decodeURIComponent(encodedAddress);
       console.log('Raw address from URL:', rawAddress);
 
-      // Clean the address for geocoding:
-      // 1. Remove leading postal code (e.g., "700", "114")
-      // 2. Extract city + district + street (remove house number and store name)
-      // Example: "700臺南市中西區忠明街23號四季恬鑫溫體牛肉鍋忠明店" -> "臺南市中西區忠明街"
-      // Example: "114臺北市內湖區堤頂大道二段251號" -> "臺北市內湖區堤頂大道二段"
+      // Parse Taiwan address: [postal]City+District+Street+Number+StoreName
+      // Example: "700臺南市中西區忠明街23號四季恬鑫溫體牛肉鍋忠明店"
+      // Example: "114臺北市內湖區堤頂大道二段251號"
       let address = rawAddress;
       
       // Remove leading postal code
       address = address.replace(/^\d{3,6}/, '');
       
-      // Remove everything after house number (號) - this removes store names
-      address = address.replace(/\d+號.*$/, '');
+      // Parse structured address: city(市) + district(區) + street + number(號)
+      const twAddressMatch = address.match(/^(.+?[市縣])(.+?[區鄉鎮市])(.+?)(\d+號)/);
       
-      // Also try removing +encoded store names (for URLs with + separator)
-      address = address.replace(/\+.*$/, '');
-      
-      console.log('Cleaned address for geocoding:', address);
+      if (twAddressMatch) {
+        const city = twAddressMatch[1];
+        const district = twAddressMatch[2];
+        const street = twAddressMatch[3];
+        const number = twAddressMatch[4].replace('號', '');
+        
+        console.log(`Parsed address: city=${city}, district=${district}, street=${street}, number=${number}`);
+        
+        // Use Nominatim structured query for precise geocoding
+        const params = new URLSearchParams({
+          street: `${number} ${street}`,
+          city: city,
+          county: district,
+          format: 'json',
+          limit: '1',
+          countrycodes: 'tw',
+        });
+        
+        const nominatimUrl = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
+        const response = await fetch(nominatimUrl, {
+          headers: { 'User-Agent': 'TrafficBot/1.0' },
+        });
 
-      if (!address || address.length < 4) return null;
+        if (response.ok) {
+          const results = await response.json();
+          if (results && results.length > 0) {
+            const lat = parseFloat(results[0].lat);
+            const lon = parseFloat(results[0].lon);
+            console.log('Geocoded coordinates (structured):', lat, lon);
+            return { latitude: lat, longitude: lon };
+          }
+        }
+        
+        // Fallback: try with just city + street (without house number)
+        const fallbackParams = new URLSearchParams({
+          q: `${city}${district}${street}`,
+          format: 'json',
+          limit: '1',
+          countrycodes: 'tw',
+        });
+        
+        const fallbackUrl = `https://nominatim.openstreetmap.org/search?${fallbackParams.toString()}`;
+        const fallbackResponse = await fetch(fallbackUrl, {
+          headers: { 'User-Agent': 'TrafficBot/1.0' },
+        });
 
-      // Use Nominatim (OpenStreetMap) free geocoding API
-      const nominatimUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1&countrycodes=tw`;
-      const response = await fetch(nominatimUrl, {
-        headers: { 'User-Agent': 'TrafficBot/1.0' },
-      });
-
-      if (!response.ok) {
-        console.error('Nominatim API error:', response.status);
-        return null;
-      }
-
-      const results = await response.json();
-      if (results && results.length > 0) {
-        const lat = parseFloat(results[0].lat);
-        const lon = parseFloat(results[0].lon);
-        console.log('Geocoded coordinates:', lat, lon);
-        return { latitude: lat, longitude: lon };
+        if (fallbackResponse.ok) {
+          const fallbackResults = await fallbackResponse.json();
+          if (fallbackResults && fallbackResults.length > 0) {
+            const lat = parseFloat(fallbackResults[0].lat);
+            const lon = parseFloat(fallbackResults[0].lon);
+            console.log('Geocoded coordinates (fallback):', lat, lon);
+            return { latitude: lat, longitude: lon };
+          }
+        }
       }
 
       console.log('Nominatim returned no results');
