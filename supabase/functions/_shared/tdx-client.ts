@@ -496,6 +496,7 @@ export class TdxApiClient {
         
         // Use manual redirect to capture intermediate URLs
         let currentUrl = cleanUrl;
+        let lastRedirectUrl = '';
         for (let i = 0; i < 5; i++) {
           const response = await fetch(currentUrl, {
             method: 'GET',
@@ -503,7 +504,7 @@ export class TdxApiClient {
           });
           
           const location = response.headers.get('location');
-          console.log(`Redirect step ${i}: status=${response.status}, location=${location}`);
+          console.log(`Redirect step ${i}: status=${response.status}, location=${location?.substring(0, 200)}`);
           
           if (location) {
             // Try parsing the redirect location URL
@@ -512,11 +513,12 @@ export class TdxApiClient {
               console.log('Parsed coordinates from redirect location');
               return locationResult;
             }
+            lastRedirectUrl = location;
             currentUrl = location;
           } else {
             // No more redirects, try parsing the final URL and body
             const finalUrl = response.url || currentUrl;
-            console.log('Final URL:', finalUrl);
+            console.log('Final URL:', finalUrl.substring(0, 200));
             
             const finalResult = this.parseGoogleMapsUrl(finalUrl);
             if (finalResult) {
@@ -535,11 +537,56 @@ export class TdxApiClient {
             break;
           }
         }
+
+        // Last resort: extract address from the redirect URL and geocode it
+        const addressUrl = lastRedirectUrl || currentUrl;
+        const geocodeResult = await this.geocodeFromMapsUrl(addressUrl);
+        if (geocodeResult) {
+          console.log('Parsed coordinates from geocoding address');
+          return geocodeResult;
+        }
       }
 
       return null;
     } catch (error) {
       console.error('Error parsing Google Maps URL with redirect:', error);
+      return null;
+    }
+  }
+
+  private async geocodeFromMapsUrl(url: string): Promise<{ latitude: number; longitude: number } | null> {
+    try {
+      // Extract address from Google Maps place URL
+      // Format: /maps/place/ENCODED_ADDRESS/data=...
+      const placeMatch = url.match(/\/maps\/place\/([^/?]+)/);
+      if (!placeMatch) return null;
+
+      const encodedAddress = placeMatch[1];
+      const address = decodeURIComponent(encodedAddress);
+      console.log('Extracted address for geocoding:', address);
+
+      // Use Nominatim (OpenStreetMap) free geocoding API
+      const nominatimUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`;
+      const response = await fetch(nominatimUrl, {
+        headers: { 'User-Agent': 'TrafficBot/1.0' },
+      });
+
+      if (!response.ok) {
+        console.error('Nominatim API error:', response.status);
+        return null;
+      }
+
+      const results = await response.json();
+      if (results && results.length > 0) {
+        const lat = parseFloat(results[0].lat);
+        const lon = parseFloat(results[0].lon);
+        console.log('Geocoded coordinates:', lat, lon);
+        return { latitude: lat, longitude: lon };
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Geocoding error:', error);
       return null;
     }
   }
