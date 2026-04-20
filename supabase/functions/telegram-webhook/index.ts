@@ -346,7 +346,7 @@ async function handleTextMessage(
 }
 
 async function handleMapsUrl(
-  url: string,
+  text: string,
   chatId: number,
   userId: string,
   supabase: any,
@@ -358,6 +358,12 @@ async function handleMapsUrl(
     await sendMessage(chatId, '請先選擇功能（/parking 或 /traffic）', botToken);
     return;
   }
+
+  // Extract URL from text (user might paste URL with extra text)
+  const urlMatch = text.match(/(https?:\/\/[^\s]+)/);
+  const url = urlMatch ? urlMatch[1] : text.trim();
+  
+  console.log('Extracted URL:', url);
 
   // Parse URL using TdxApiClient (with redirect support for short links)
   const tempClient = new TdxApiClient('temp:temp');

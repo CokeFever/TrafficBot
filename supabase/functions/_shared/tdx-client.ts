@@ -522,6 +522,7 @@ export class TdxApiClient {
     try {
       // Remove query parameters from short links (e.g., ?g_st=ac)
       const cleanUrl = url.split('?')[0];
+      console.log('parseGoogleMapsUrlWithRedirect input:', url, '-> clean:', cleanUrl);
       
       // First try direct parsing
       const directResult = this.parseGoogleMapsUrl(cleanUrl);
@@ -533,30 +534,46 @@ export class TdxApiClient {
       if (cleanUrl.includes('maps.app.goo.gl') || cleanUrl.includes('goo.gl/maps')) {
         console.log('Detected short link, following redirect...');
         
-        // Follow redirect to get full URL
-        const response = await fetch(cleanUrl, {
-          method: 'GET',
-          redirect: 'follow',
-        });
-        
-        const fullUrl = response.url;
-        console.log('Redirected to:', fullUrl);
-        
-        // Try parsing the redirected URL
-        const redirectResult = this.parseGoogleMapsUrl(fullUrl);
-        if (redirectResult) {
-          return redirectResult;
-        }
-
-        // If redirect URL didn't contain coordinates, parse the HTML body
-        // Google Maps short links sometimes embed coordinates in the HTML response
-        const html = await response.text();
-        
-        // Look for coordinates in the HTML (e.g., @25.0782843,121.5664763 or !3d25.0782843!4d121.5664763)
-        const htmlResult = this.parseGoogleMapsUrl(html);
-        if (htmlResult) {
-          console.log('Parsed coordinates from HTML body');
-          return htmlResult;
+        // Use manual redirect to capture intermediate URLs
+        let currentUrl = cleanUrl;
+        for (let i = 0; i < 5; i++) {
+          const response = await fetch(currentUrl, {
+            method: 'GET',
+            redirect: 'manual',
+          });
+          
+          const location = response.headers.get('location');
+          console.log(`Redirect step ${i}: status=${response.status}, location=${location}`);
+          
+          if (location) {
+            // Try parsing the redirect location URL
+            const locationResult = this.parseGoogleMapsUrl(location);
+            if (locationResult) {
+              console.log('Parsed coordinates from redirect location');
+              return locationResult;
+            }
+            currentUrl = location;
+          } else {
+            // No more redirects, try parsing the final URL and body
+            const finalUrl = response.url || currentUrl;
+            console.log('Final URL:', finalUrl);
+            
+            const finalResult = this.parseGoogleMapsUrl(finalUrl);
+            if (finalResult) {
+              return finalResult;
+            }
+            
+            // Parse HTML body for coordinates
+            const html = await response.text();
+            console.log('HTML body length:', html.length);
+            
+            const htmlResult = this.parseGoogleMapsUrl(html);
+            if (htmlResult) {
+              console.log('Parsed coordinates from HTML body');
+              return htmlResult;
+            }
+            break;
+          }
         }
       }
 
