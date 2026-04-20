@@ -542,8 +542,22 @@ export class TdxApiClient {
         const fullUrl = response.url;
         console.log('Redirected to:', fullUrl);
         
-        // Try parsing the full URL
-        return this.parseGoogleMapsUrl(fullUrl);
+        // Try parsing the redirected URL
+        const redirectResult = this.parseGoogleMapsUrl(fullUrl);
+        if (redirectResult) {
+          return redirectResult;
+        }
+
+        // If redirect URL didn't contain coordinates, parse the HTML body
+        // Google Maps short links sometimes embed coordinates in the HTML response
+        const html = await response.text();
+        
+        // Look for coordinates in the HTML (e.g., @25.0782843,121.5664763 or !3d25.0782843!4d121.5664763)
+        const htmlResult = this.parseGoogleMapsUrl(html);
+        if (htmlResult) {
+          console.log('Parsed coordinates from HTML body');
+          return htmlResult;
+        }
       }
 
       return null;
