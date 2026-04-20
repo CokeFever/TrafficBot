@@ -562,11 +562,31 @@ export class TdxApiClient {
       if (!placeMatch) return null;
 
       const encodedAddress = placeMatch[1];
-      const address = decodeURIComponent(encodedAddress);
-      console.log('Extracted address for geocoding:', address);
+      const rawAddress = decodeURIComponent(encodedAddress);
+      console.log('Raw address from URL:', rawAddress);
+
+      // Clean the address for geocoding:
+      // 1. Remove leading postal code (e.g., "700", "114")
+      // 2. Extract city + district + street (remove house number and store name)
+      // Example: "700臺南市中西區忠明街23號四季恬鑫溫體牛肉鍋忠明店" -> "臺南市中西區忠明街"
+      // Example: "114臺北市內湖區堤頂大道二段251號" -> "臺北市內湖區堤頂大道二段"
+      let address = rawAddress;
+      
+      // Remove leading postal code
+      address = address.replace(/^\d{3,6}/, '');
+      
+      // Remove everything after house number (號) - this removes store names
+      address = address.replace(/\d+號.*$/, '');
+      
+      // Also try removing +encoded store names (for URLs with + separator)
+      address = address.replace(/\+.*$/, '');
+      
+      console.log('Cleaned address for geocoding:', address);
+
+      if (!address || address.length < 4) return null;
 
       // Use Nominatim (OpenStreetMap) free geocoding API
-      const nominatimUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`;
+      const nominatimUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1&countrycodes=tw`;
       const response = await fetch(nominatimUrl, {
         headers: { 'User-Agent': 'TrafficBot/1.0' },
       });
@@ -584,6 +604,7 @@ export class TdxApiClient {
         return { latitude: lat, longitude: lon };
       }
 
+      console.log('Nominatim returned no results');
       return null;
     } catch (error) {
       console.error('Geocoding error:', error);
