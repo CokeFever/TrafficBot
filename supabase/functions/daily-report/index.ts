@@ -53,6 +53,12 @@ Deno.serve(async (req) => {
     const trialQueries = yesterdayLogs?.filter((log: any) => log.is_trial).length || 0;
     const apiKeyQueries = yesterdayLogs?.filter((log: any) => !log.is_trial).length || 0;
 
+    // 7. Platform breakdown
+    const telegramQueries = yesterdayLogs?.filter((log: any) => !log.user_id.startsWith('line_')).length || 0;
+    const lineQueries = yesterdayLogs?.filter((log: any) => log.user_id.startsWith('line_')).length || 0;
+    const telegramUsers = new Set(yesterdayLogs?.filter((log: any) => !log.user_id.startsWith('line_')).map((log: any) => log.user_id) || []);
+    const lineUsers = new Set(yesterdayLogs?.filter((log: any) => log.user_id.startsWith('line_')).map((log: any) => log.user_id) || []);
+
     // Build report message
     const report = `
 📊 泊車小弟 每日報表
@@ -64,6 +70,10 @@ Deno.serve(async (req) => {
 • 停車查詢：${parkingQueries} 次
 • 路況查詢：${trafficQueries} 次
 • 活躍用戶：${activeUsersYesterday} 人
+
+📱 平台分佈：
+• Telegram：${telegramQueries} 次 / ${telegramUsers.size} 人
+• LINE：${lineQueries} 次 / ${lineUsers.size} 人
 
 🔑 查詢來源：
 • 試用模式：${trialQueries} 次
