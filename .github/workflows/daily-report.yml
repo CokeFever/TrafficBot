@@ -1,0 +1,52 @@
+name: Daily Report & Keep Alive
+
+on:
+  schedule:
+    # Run every day at 01:00 UTC (09:00 UTC+8 Taiwan time)
+    - cron: '0 1 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  daily-report:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Send Daily Report
+        env:
+          SUPABASE_PROJECT_ID: yqpigatgtxvytmkxumxu
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          echo "📊 Triggering daily report..."
+          
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            "https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/daily-report" \
+            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
+            -H "Content-Type: application/json")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          
+          echo "Response: $BODY"
+          echo "HTTP Code: $HTTP_CODE"
+          
+          if [ "$HTTP_CODE" -eq 200 ]; then
+            echo "✅ Daily report sent successfully!"
+          else
+            echo "❌ Daily report failed with HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+      - name: Keep Alive Ping
+        env:
+          SUPABASE_PROJECT_ID: yqpigatgtxvytmkxumxu
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          echo "🏓 Pinging Supabase to prevent pause..."
+          
+          curl -s -o /dev/null -w "HTTP %{http_code}" \
+            "https://${SUPABASE_PROJECT_ID}.supabase.co/rest/v1/trial_usage?select=count&limit=1" \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}"
+          
+          echo ""
+          echo "✅ Keep-alive ping completed"
