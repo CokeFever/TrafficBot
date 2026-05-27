@@ -657,6 +657,16 @@ async function handleParkingQuery(
     const tdxClient = new TdxApiClient(apiKey);
     const results = await tdxClient.queryNearbyParking(latitude, longitude, radius);
 
+    // Log query
+    await supabase.from('query_logs').insert({
+      user_id: userId,
+      query_type: 'parking',
+      latitude,
+      longitude,
+      radius,
+      is_trial: isTrialMode,
+    });
+
     // Format and send results
     let message = formatParkingResults(results);
     
@@ -699,6 +709,16 @@ async function handleTrafficQuery(
     // Query traffic
     const tdxClient = new TdxApiClient(apiKey);
     const results = await tdxClient.queryNearbyTraffic(latitude, longitude, radius);
+
+    // Log query
+    await supabase.from('query_logs').insert({
+      user_id: userId,
+      query_type: 'traffic',
+      latitude,
+      longitude,
+      radius,
+      is_trial: false,
+    });
 
     // Format and send results
     const message = formatTrafficResults(results);

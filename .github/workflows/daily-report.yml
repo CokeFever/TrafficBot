@@ -2,8 +2,8 @@ name: Daily Report & Keep Alive
 
 on:
   schedule:
-    # Run every day at 01:00 UTC (09:00 UTC+8 Taiwan time)
-    - cron: '0 1 * * *'
+    # Run every day at 02:00 UTC (10:00 UTC+8 Taiwan time)
+    - cron: '0 2 * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
