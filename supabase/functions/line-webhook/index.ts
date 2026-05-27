@@ -78,7 +78,8 @@ async function processEvent(event: any, supabase: any, accessToken: string) {
   if (type !== 'message' && type !== 'postback') return;
   
   const userId = `line_${source.userId}`;
-  const sender = createLineSender(replyToken, accessToken);
+  const lineUserId = source.userId; // Raw LINE user ID for push messages
+  const sender = createLineSender(replyToken, lineUserId, accessToken);
 
   if (type === 'postback') {
     await handlePostback(event.postback.data, userId, supabase, sender);
@@ -95,52 +96,54 @@ async function processEvent(event: any, supabase: any, accessToken: string) {
 }
 
 // LINE Message Sender implementation
-function createLineSender(replyToken: string, accessToken: string): MessageSender {
+function createLineSender(replyToken: string, lineUserId: string, accessToken: string): MessageSender {
   let replied = false;
 
-  const pushMessage = async (userId: string, messages: any[]) => {
-    // Use push API for subsequent messages (reply token can only be used once)
-    await fetch(`${LINE_API_BASE}/message/push`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ to: userId, messages }),
-    });
-  };
-
-  const replyMessage = async (messages: any[]) => {
-    if (replied) {
-      // Reply token already used, this shouldn't happen in normal flow
-      console.warn('Reply token already used');
-      return;
+  const sendMessages = async (messages: any[]) => {
+    if (!replied) {
+      // First message: use reply
+      replied = true;
+      const res = await fetch(`${LINE_API_BASE}/message/reply`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ replyToken, messages }),
+      });
+      if (!res.ok) {
+        console.error('Reply failed:', await res.text());
+      }
+    } else {
+      // Subsequent messages: use push
+      const res = await fetch(`${LINE_API_BASE}/message/push`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ to: lineUserId, messages }),
+      });
+      if (!res.ok) {
+        console.error('Push failed:', await res.text());
+      }
     }
-    replied = true;
-    await fetch(`${LINE_API_BASE}/message/reply`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ replyToken, messages }),
-    });
   };
 
   return {
     async sendText(text: string, options?: MessageOptions) {
       // LINE has 5000 char limit per message
       const truncated = text.length > 4900 ? text.substring(0, 4900) + '\n...(已截斷)' : text;
-      await replyMessage([{ type: 'text', text: truncated }]);
+      await sendMessages([{ type: 'text', text: truncated }]);
     },
 
     async sendTextWithRadiusButtons(text: string, command: 'parking' | 'traffic') {
-      await replyMessage([{
+      await sendMessages([{
         type: 'template',
         altText: text,
         template: {
           type: 'buttons',
-          text: text.substring(0, 60), // LINE buttons template text limit
+          text: text.substring(0, 60),
           actions: [
             { type: 'postback', label: '250m', data: `${command}:radius:250` },
             { type: 'postback', label: '500m', data: `${command}:radius:500` },
@@ -151,7 +154,7 @@ function createLineSender(replyToken: string, accessToken: string): MessageSende
     },
 
     async sendTextWithLocationRequest(text: string) {
-      await replyMessage([{
+      await sendMessages([{
         type: 'text',
         text: text + '\n\n請點擊下方「+」→「位置資訊」分享你的位置，或直接輸入地點名稱',
       }]);
