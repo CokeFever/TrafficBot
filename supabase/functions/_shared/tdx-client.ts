@@ -306,7 +306,8 @@ export class TdxApiClient {
 
     if (!response.ok) {
       console.error(`OffStreet NearBy API failed: ${response.status} ${response.statusText}`);
-      throw new Error(`Failed to fetch nearby parking: ${response.status} ${response.statusText}`);
+      // Don't throw - return empty so OnStreet can still be queried
+      return [];
     }
 
     const data = await response.json();
