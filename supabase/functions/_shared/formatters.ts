@@ -11,7 +11,7 @@ export function formatParkingResults(results: ParkingInfo[], maxResults: number 
   
   if (results.length >= 3) {
     limited = selectBestParking(results);
-    selectionNote = '\n（已為您篩選：最近、空位最多、最便宜）';
+    selectionNote = '\n（優先序：最近、空位最多、最便宜）';
   } else {
     limited = results.slice(0, maxResults);
   }
