@@ -298,16 +298,35 @@ export class TdxApiClient {
     const spatialFilter = `nearby(${latitude},${longitude},${radius})`;
     const url = `https://tdx.transportdata.tw/api/advanced/v1/Parking/OffStreet/CarPark/NearBy?$spatialFilter=${spatialFilter}&$format=JSON`;
 
+    console.log(`Fetching OffStreet NearBy: ${url}`);
+
     const response = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch nearby parking: ${response.statusText}`);
+      console.error(`OffStreet NearBy API failed: ${response.status} ${response.statusText}`);
+      throw new Error(`Failed to fetch nearby parking: ${response.status} ${response.statusText}`);
     }
 
     const data = await response.json();
-    return Array.isArray(data) ? data : [];
+    
+    // Handle multiple possible response formats from TDX
+    let lots: ParkingLot[];
+    if (Array.isArray(data)) {
+      lots = data;
+    } else if (data.CarParks && Array.isArray(data.CarParks)) {
+      lots = data.CarParks;
+    } else if (data.CarParkList && Array.isArray(data.CarParkList)) {
+      lots = data.CarParkList;
+    } else {
+      // Try to find any array property in the response
+      const arrayProp = Object.values(data).find(v => Array.isArray(v));
+      lots = (arrayProp as ParkingLot[]) || [];
+    }
+    
+    console.log(`OffStreet NearBy returned ${lots.length} parking lots`);
+    return lots;
   }
 
   private async getParkingAvailability(

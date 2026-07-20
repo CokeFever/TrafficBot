@@ -43,11 +43,7 @@ export function formatParkingResults(results: ParkingInfo[], page: number = 0): 
 
   let message = `🅿️ 找到 ${results.length} 個停車位${countDetail}\n`;
 
-  // Selection note based on what we picked
-  const notes: string[] = [];
-  if (offStreet.length > 0) notes.push('停車場：最近、空位最多、最便宜');
-  if (onStreet.length > 0) notes.push('路邊：最近、最便宜');
-  message += `（優先序：${notes.join('；')}）\n\n`;
+  message += '\n';
 
   message += formatParkingList(selected);
 
