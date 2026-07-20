@@ -67,6 +67,11 @@ export async function handleParkingQueryCore(
     }
 
     await sender.sendText(message, { parseMode: 'Markdown' });
+    
+    // Save results for pagination (user can type "更多" to see next page)
+    if (results.length > 5) {
+      await saveUserState(userId, { command: 'parking_results', lastResults: results, currentPage: 0 }, supabase);
+    }
   } catch (error) {
     await sender.sendText(formatError(error as Error));
   }

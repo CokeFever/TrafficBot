@@ -1,51 +1,119 @@
 import { ParkingInfo, TrafficInfo } from './tdx-client.ts';
 
-export function formatParkingResults(results: ParkingInfo[], maxResults: number = 10): string {
+export function formatParkingResults(results: ParkingInfo[], page: number = 0): string {
   if (results.length === 0) {
-    return '❌ 附近沒有找到停車場';
+    return '❌ 附近沒有找到停車位';
   }
 
-  // 智慧篩選：如果結果 >= 3，只顯示最近、空位最多、最便宜各一筆
-  let limited: ParkingInfo[];
-  let selectionNote = '';
-  
-  if (results.length >= 3) {
-    limited = selectBestParking(results);
-    selectionNote = '\n（優先序：最近、空位最多、最便宜）';
-  } else {
-    limited = results.slice(0, maxResults);
+  // page > 0: paginated full list (5 per page)
+  if (page > 0) {
+    return formatParkingPage(results, page);
   }
 
-  // Count by category
-  const offStreetCount = results.filter(r => r.parkingCategory !== 'onstreet').length;
-  const onStreetCount = results.filter(r => r.parkingCategory === 'onstreet').length;
+  // page 0: smart selection summary
+  const offStreet = results.filter(r => r.parkingCategory !== 'onstreet');
+  const onStreet = results.filter(r => r.parkingCategory === 'onstreet');
+
+  const selected: ParkingInfo[] = [];
+
+  // OffStreet: up to 3 picks (nearest, most available, cheapest)
+  if (offStreet.length > 0) {
+    selected.push(...selectBestOffStreet(offStreet));
+  }
+
+  // OnStreet: up to 2 picks (nearest, cheapest)
+  if (onStreet.length > 0) {
+    selected.push(...selectBestOnStreet(onStreet));
+  }
+
+  // Edge case: nothing selected
+  if (selected.length === 0) {
+    selected.push(...results.slice(0, 3));
+  }
+
+  // Header
   let countDetail = '';
-  if (offStreetCount > 0 && onStreetCount > 0) {
-    countDetail = `（🅿️停車場 ${offStreetCount} + 🛣️路邊 ${onStreetCount}）`;
+  if (offStreet.length > 0 && onStreet.length > 0) {
+    countDetail = `（🅿️停車場 ${offStreet.length} + 🛣️路邊 ${onStreet.length}）`;
+  } else if (offStreet.length > 0) {
+    countDetail = `（🅿️停車場 ${offStreet.length}）`;
+  } else {
+    countDetail = `（🛣️路邊 ${onStreet.length}）`;
   }
 
-  let message = `🅿️ 找到 ${results.length} 個停車位${countDetail}${selectionNote}\n\n`;
+  let message = `🅿️ 找到 ${results.length} 個停車位${countDetail}\n`;
 
-  limited.forEach((parking, index) => {
-    // 類型標示
+  // Selection note based on what we picked
+  const notes: string[] = [];
+  if (offStreet.length > 0) notes.push('停車場：最近、空位最多、最便宜');
+  if (onStreet.length > 0) notes.push('路邊：最近、最便宜');
+  message += `（優先序：${notes.join('；')}）\n\n`;
+
+  message += formatParkingList(selected);
+
+  const remaining = results.length - selected.length;
+  if (remaining > 0) {
+    message += `\n\n📋 還有 ${remaining} 個停車位，輸入「更多」查看完整列表`;
+  }
+
+  if (message.length > 4000) {
+    message = message.substring(0, 3900) + '\n\n... (訊息過長，已截斷)';
+  }
+
+  return message;
+}
+
+// Paginated full list: 5 per page
+export function formatParkingPage(results: ParkingInfo[], page: number): string {
+  const pageSize = 5;
+  const startIndex = (page - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, results.length);
+  const totalPages = Math.ceil(results.length / pageSize);
+
+  if (startIndex >= results.length) {
+    return '✅ 已顯示全部停車位，沒有更多了';
+  }
+
+  const pageItems = results.slice(startIndex, endIndex);
+
+  let message = `📋 停車位列表（第 ${page}/${totalPages} 頁）\n\n`;
+  message += formatParkingList(pageItems);
+
+  if (endIndex < results.length) {
+    message += `\n\n📋 輸入「更多」查看下一頁（已顯示 ${endIndex}/${results.length}）`;
+  } else {
+    message += `\n\n✅ 已顯示全部 ${results.length} 個停車位`;
+  }
+
+  if (message.length > 4000) {
+    message = message.substring(0, 3900) + '\n\n... (訊息過長，已截斷)';
+  }
+
+  return message;
+}
+
+// Format a list of parking items into display text
+function formatParkingList(items: ParkingInfo[]): string {
+  let message = '';
+
+  items.forEach((parking, index) => {
     const categoryIcon = parking.parkingCategory === 'onstreet' ? '🛣️' : '🅿️';
     const categoryLabel = parking.parkingCategory === 'onstreet' ? '路邊' : '停車場';
     message += `${categoryIcon} ${parking.name}（${categoryLabel}）\n`;
     message += `距離：${formatDistance(parking.distance)}\n`;
-    
+
     // 車位
     if (parking.totalSpaces > 0) {
-      const availableText = parking.availableSpaces >= 0 
-        ? `${parking.availableSpaces} / ${parking.totalSpaces}` 
+      const availableText = parking.availableSpaces >= 0
+        ? `${parking.availableSpaces} / ${parking.totalSpaces}`
         : '未提供';
       message += `車位：${availableText}\n`;
     } else {
       message += `車位：未提供\n`;
     }
-    
-    // 特殊車位（單行顯示，只有 > 0 才顯示）
+
+    // 特殊車位
     const specialParts: string[] = [];
-    
     if (parking.heavyMotorcycleSpaces && parking.heavyMotorcycleSpaces > 0) {
       specialParts.push(`🏍️重機: ${parking.heavyMotorcycleSpaces}`);
     }
@@ -58,11 +126,10 @@ export function formatParkingResults(results: ParkingInfo[], maxResults: number 
     if (parking.womenChildrenSpaces && parking.womenChildrenSpaces > 0) {
       specialParts.push(`👶婦幼: ${parking.womenChildrenSpaces}`);
     }
-    
     if (specialParts.length > 0) {
       message += specialParts.join(', ') + '\n';
     }
-    
+
     // 收費
     if (parking.fareDescription) {
       message += '收費：';
@@ -71,9 +138,8 @@ export function formatParkingResults(results: ParkingInfo[], maxResults: number 
       } else if (parking.monthlyRate) {
         message += `月租 ${parking.monthlyRate}`;
       } else {
-        // 顯示原始說明（簡化版）
-        const simpleFare = parking.fareDescription.length > 60 
-          ? parking.fareDescription.substring(0, 60) + '...' 
+        const simpleFare = parking.fareDescription.length > 60
+          ? parking.fareDescription.substring(0, 60) + '...'
           : parking.fareDescription;
         message += simpleFare;
       }
@@ -81,83 +147,98 @@ export function formatParkingResults(results: ParkingInfo[], maxResults: number 
     } else {
       message += '收費：未提供\n';
     }
-    
+
     // 營業時間
     if (parking.serviceTime) {
       message += `🕐 ${parking.serviceTime}\n`;
     }
-    
-    // 路邊停車標示（OnStreet 的 name 已帶有 🛣️ 前綴，這裡可選加標註）
-    
+
     // 導航連結
     message += `[📍 導航](https://www.google.com/maps/dir/?api=1&destination=${parking.latitude},${parking.longitude})\n`;
-    
-    // 分隔線（除了最後一個）
-    if (index < limited.length - 1) {
+
+    // 分隔線
+    if (index < items.length - 1) {
       message += '\n---\n\n';
     }
   });
 
-  if (results.length > limited.length) {
-    message += `\n\n還有 ${results.length - limited.length} 個停車場`;
-  }
-
-  // Check message length and truncate if needed
-  if (message.length > 4000) {
-    message = message.substring(0, 3900) + '\n\n... (訊息過長，已截斷)';
-  }
-
   return message;
 }
 
-// 智慧篩選：選出最近、空位最多、最便宜各一筆
-function selectBestParking(results: ParkingInfo[]): ParkingInfo[] {
+// OffStreet: pick nearest, most available, cheapest (up to 3)
+function selectBestOffStreet(items: ParkingInfo[]): ParkingInfo[] {
   const selected: ParkingInfo[] = [];
   const selectedIds = new Set<string>();
-  
-  // 1. 距離最近的
-  const nearest = results[0]; // 已經按距離排序
-  selected.push(nearest);
-  selectedIds.add(nearest.id);
-  
-  // 2. 空位最多的（只考慮有空位資訊的）
-  const withAvailability = results.filter(p => p.availableSpaces >= 0 && p.totalSpaces > 0);
+
+  // 1. Nearest (already sorted by distance)
+  if (items.length > 0) {
+    selected.push(items[0]);
+    selectedIds.add(items[0].id);
+  }
+
+  // 2. Most available spaces
+  const withAvailability = items.filter(p => p.availableSpaces >= 0 && p.totalSpaces > 0 && !selectedIds.has(p.id));
   if (withAvailability.length > 0) {
-    const mostAvailable = withAvailability.reduce((max, p) => 
+    const mostAvailable = withAvailability.reduce((max, p) =>
       p.availableSpaces > max.availableSpaces ? p : max
     );
-    if (!selectedIds.has(mostAvailable.id)) {
-      selected.push(mostAvailable);
-      selectedIds.add(mostAvailable.id);
-    }
+    selected.push(mostAvailable);
+    selectedIds.add(mostAvailable.id);
   }
-  
-  // 3. 最便宜的（只考慮有計時收費的）
-  const withHourlyRate = results.filter(p => p.hourlyRate);
-  if (withHourlyRate.length > 0) {
-    const cheapest = withHourlyRate.reduce((min, p) => {
-      const minPrice = extractPrice(min.hourlyRate);
-      const pPrice = extractPrice(p.hourlyRate);
-      return pPrice < minPrice ? p : min;
+
+  // 3. Cheapest
+  const withRate = items.filter(p => p.hourlyRate && !selectedIds.has(p.id));
+  if (withRate.length > 0) {
+    const cheapest = withRate.reduce((min, p) => {
+      return extractPrice(p.hourlyRate) < extractPrice(min.hourlyRate) ? p : min;
     });
-    if (!selectedIds.has(cheapest.id)) {
-      selected.push(cheapest);
-      selectedIds.add(cheapest.id);
+    selected.push(cheapest);
+    selectedIds.add(cheapest.id);
+  }
+
+  // Fill up to 3 if needed
+  for (const item of items) {
+    if (selected.length >= 3) break;
+    if (!selectedIds.has(item.id)) {
+      selected.push(item);
+      selectedIds.add(item.id);
     }
   }
-  
-  // 如果篩選後少於 3 筆，補上距離最近的其他停車場
-  if (selected.length < 3) {
-    for (const parking of results) {
-      if (!selectedIds.has(parking.id)) {
-        selected.push(parking);
-        selectedIds.add(parking.id);
-        if (selected.length >= 3) break;
-      }
+
+  return selected.slice(0, 3);
+}
+
+// OnStreet: pick nearest, cheapest (up to 2)
+function selectBestOnStreet(items: ParkingInfo[]): ParkingInfo[] {
+  const selected: ParkingInfo[] = [];
+  const selectedIds = new Set<string>();
+
+  // 1. Nearest
+  if (items.length > 0) {
+    selected.push(items[0]);
+    selectedIds.add(items[0].id);
+  }
+
+  // 2. Cheapest
+  const withRate = items.filter(p => p.hourlyRate && !selectedIds.has(p.id));
+  if (withRate.length > 0) {
+    const cheapest = withRate.reduce((min, p) => {
+      return extractPrice(p.hourlyRate) < extractPrice(min.hourlyRate) ? p : min;
+    });
+    selected.push(cheapest);
+    selectedIds.add(cheapest.id);
+  }
+
+  // Fill up to 2 if needed
+  for (const item of items) {
+    if (selected.length >= 2) break;
+    if (!selectedIds.has(item.id)) {
+      selected.push(item);
+      selectedIds.add(item.id);
     }
   }
-  
-  return selected;
+
+  return selected.slice(0, 2);
 }
 
 // 從收費字串中提取價格數字

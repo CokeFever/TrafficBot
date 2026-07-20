@@ -1,6 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { TdxApiClient } from '../_shared/tdx-client.ts';
-import { formatParkingResults, formatTrafficResults, formatError, formatRadiusText } from '../_shared/formatters.ts';
+import { formatParkingResults, formatParkingPage, formatTrafficResults, formatError, formatRadiusText } from '../_shared/formatters.ts';
 import {
   handleParkingQueryCore,
   handleTrafficQueryCore,
@@ -193,6 +193,20 @@ async function handleTextMessage(text: string, userId: string, supabase: any, se
   if (trimmed === '機車停車' || trimmed === '機車') {
     await saveUserState(userId, { command: 'parking', vehicleType: 'motorcycle' }, supabase);
     await sender.sendTextWithRadiusButtons('🏍️ 機車停車 - 請選擇搜尋範圍：', 'parking');
+    return;
+  }
+
+  // Pagination: show more parking results
+  if (trimmed === '更多' || trimmed === '下一頁') {
+    const state = await getUserState(userId, supabase);
+    if (state && state.lastResults && state.lastResults.length > 0) {
+      const nextPage = (state.currentPage || 0) + 1;
+      const message = formatParkingPage(state.lastResults, nextPage);
+      await sender.sendText(message);
+      await saveUserState(userId, { ...state, currentPage: nextPage }, supabase);
+    } else {
+      await sender.sendText('沒有可顯示的停車資料，請先輸入「停車」查詢');
+    }
     return;
   }
 

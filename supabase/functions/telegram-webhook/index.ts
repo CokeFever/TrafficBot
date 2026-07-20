@@ -1,7 +1,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { TdxApiClient } from '../_shared/tdx-client.ts';
-import { formatParkingResults, formatTrafficResults, formatError, formatRadiusText } from '../_shared/formatters.ts';
+import { formatParkingResults, formatParkingPage, formatTrafficResults, formatError, formatRadiusText } from '../_shared/formatters.ts';
 
 // Initialize bot commands on startup
 async function initializeBotCommands(botToken: string) {
@@ -308,6 +308,20 @@ async function handleTextMessage(
   botToken: string
 ) {
   const state = await getUserState(userId, supabase);
+  
+  // Handle "更多" pagination command
+  if (text === '更多' || text === '下一頁') {
+    if (state && state.lastResults && state.lastResults.length > 0) {
+      const nextPage = (state.currentPage || 0) + 1;
+      const message = formatParkingPage(state.lastResults, nextPage);
+      await sendMessage(chatId, message, botToken, { parse_mode: 'Markdown' });
+      await saveUserState(userId, { ...state, currentPage: nextPage }, supabase);
+      return;
+    }
+    // No stored results
+    await sendMessage(chatId, '沒有可顯示的停車資料，請先使用 /parking 查詢', botToken);
+    return;
+  }
   
   // Check if it's a Google Maps URL (handle even without state)
   if (text.includes('maps.app.goo.gl') || text.includes('google.com/maps') || text.includes('goo.gl/maps')) {
@@ -699,6 +713,13 @@ async function handleParkingQuery(
     }
     
     await sendMessage(chatId, message, botToken, { parse_mode: 'Markdown' });
+    
+    // Save results for pagination (user can type "更多" to see next page)
+    if (results.length > 5) {
+      await saveUserState(userId, { command: 'parking_results', lastResults: results, currentPage: 0 }, supabase);
+    } else {
+      await clearUserState(userId, supabase);
+    }
   } catch (error) {
     const errorMessage = formatError(error as Error);
     await sendMessage(chatId, errorMessage, botToken);
