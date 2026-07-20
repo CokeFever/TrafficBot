@@ -64,6 +64,7 @@ export interface ParkingInfo {
   // 原始資料
   description?: string;
   fareDescription?: string;
+  serviceTime?: string;
 }
 
 export interface TrafficInfo {
@@ -133,7 +134,8 @@ export class TdxApiClient {
   async queryNearbyParking(
     latitude: number,
     longitude: number,
-    radius: number
+    radius: number,
+    vehicleType?: 'car' | 'motorcycle'
   ): Promise<ParkingInfo[]> {
     try {
       const token = await this.getAccessToken();
@@ -143,16 +145,33 @@ export class TdxApiClient {
         throw new Error('Location is outside supported cities');
       }
 
-      // Step 1: Get nearby parking lots (static data)
+      // Step 1: Get nearby parking lots (static data - OffStreet)
       const nearbyLots = await this.getNearbyParkingLots(latitude, longitude, radius, token);
 
-      // Step 2: Get availability data for the city
-      const availability = await this.getParkingAvailability(city, token);
+      // Step 2: Get availability data using $filter with specific CarParkIDs
+      const carParkIds = nearbyLots.map(lot => lot.CarParkID).filter(Boolean);
+      const availability = await this.getParkingAvailability(city, token, carParkIds);
 
-      // Step 3: Merge data
-      const merged = this.mergeParkingData(nearbyLots, availability, latitude, longitude);
+      // Step 3: Merge OffStreet data
+      let offStreetResults = this.mergeParkingData(nearbyLots, availability, latitude, longitude);
+      
+      // For motorcycle queries, filter OffStreet to only show those with motorcycle spaces
+      if (vehicleType === 'motorcycle') {
+        offStreetResults = offStreetResults.filter(f => 
+          f.heavyMotorcycleSpaces && f.heavyMotorcycleSpaces > 0
+        );
+      }
 
-      // Sort by distance
+      // Step 4: Get OnStreet (路邊停車) data
+      let onStreetResults: ParkingInfo[] = [];
+      try {
+        onStreetResults = await this.queryOnStreetParking(latitude, longitude, radius, city, token, vehicleType);
+      } catch (error) {
+        console.warn('OnStreet parking query failed, using OffStreet only:', error);
+      }
+
+      // Combine and sort by distance
+      const merged = [...offStreetResults, ...onStreetResults];
       merged.sort((a, b) => a.distance - b.distance);
 
       return merged;
@@ -160,6 +179,111 @@ export class TdxApiClient {
       console.error('Error querying parking:', error);
       throw error;
     }
+  }
+
+  private async queryOnStreetParking(
+    latitude: number,
+    longitude: number,
+    radius: number,
+    city: string,
+    token: string,
+    vehicleType?: 'car' | 'motorcycle'
+  ): Promise<ParkingInfo[]> {
+    // Get on-street parking segments
+    const segmentUrl = `https://tdx.transportdata.tw/api/basic/v1/Parking/OnStreet/ParkingSegment/City/${city}?$format=JSON&$spatialFilter=nearby(${latitude},${longitude},${radius})`;
+    
+    const segmentResponse = await fetch(segmentUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    
+    if (!segmentResponse.ok) {
+      console.warn(`OnStreet segment API failed for ${city}: ${segmentResponse.status}`);
+      return [];
+    }
+    
+    const segmentData = await segmentResponse.json();
+    let segments = Array.isArray(segmentData) ? segmentData : (segmentData.ParkingSegments || []);
+    
+    // Filter by vehicle type
+    if (vehicleType === 'motorcycle') {
+      segments = segments.filter((s: any) => {
+        const parkingType = (s.ParkingType || '').toLowerCase();
+        return parkingType.includes('motorcycle') || parkingType.includes('機車') || parkingType.includes('摩托');
+      });
+    } else if (vehicleType === 'car') {
+      segments = segments.filter((s: any) => {
+        const parkingType = (s.ParkingType || '').toLowerCase();
+        return !parkingType.includes('motorcycle') || parkingType.includes('car') || parkingType === '';
+      });
+    }
+    
+    if (segments.length === 0) return [];
+    
+    console.log(`Found ${segments.length} on-street parking segments (filtered for ${vehicleType || 'all'})`);
+    
+    // Get availability for these segments
+    const segmentIds = segments.map((s: any) => s.ParkingSegmentID).filter(Boolean);
+    const batchSize = 30;
+    let allAvailabilities: any[] = [];
+    
+    for (let i = 0; i < segmentIds.length; i += batchSize) {
+      const batch = segmentIds.slice(i, i + batchSize);
+      const filterExpr = batch.map((id: string) => `ParkingSegmentID eq '${id}'`).join(' or ');
+      const availUrl = `https://tdx.transportdata.tw/api/basic/v1/Parking/OnStreet/ParkingSegmentAvailability/City/${city}?$format=JSON&$filter=${filterExpr}`;
+      
+      const availResponse = await fetch(availUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (availResponse.ok) {
+        const availData = await availResponse.json();
+        const avails = Array.isArray(availData) ? availData : (availData.ParkingSegmentAvailabilities || []);
+        allAvailabilities.push(...avails);
+      }
+    }
+    
+    // Merge segments with availability
+    const availMap = new Map();
+    allAvailabilities.forEach((avail: any) => {
+      availMap.set(avail.ParkingSegmentID, avail);
+    });
+    
+    return segments.map((segment: any) => {
+      const position = segment.Position || segment.ParkingSegmentPosition;
+      if (!position) return null;
+      
+      const avail = availMap.get(segment.ParkingSegmentID);
+      const distance = this.calculateDistance(latitude, longitude, position.PositionLat, position.PositionLon);
+      
+      if (distance > radius) return null;
+      
+      const segmentName = segment.ParkingSegmentName?.Zh_tw || '';
+      const roadName = segment.RoadName || '';
+      const roadSection = segment.RoadSection || '';
+      const name = segmentName || `${roadName}${roadSection ? ` (${roadSection})` : ''}` || segment.ParkingSegmentID;
+      
+      const fareDescription = typeof segment.FareDescription === 'string' 
+        ? segment.FareDescription 
+        : segment.FareDescription?.Zh_tw || '';
+      const fareInfo = this.parseFareInfo(fareDescription);
+      
+      return {
+        id: segment.ParkingSegmentID,
+        name: `🛣️ ${name}`,
+        address: `${roadName}${roadSection ? ` ${roadSection}` : ''}`,
+        latitude: position.PositionLat,
+        longitude: position.PositionLon,
+        distance: Math.round(distance),
+        totalSpaces: segment.TotalSpaces || 0,
+        availableSpaces: avail?.AvailableSpaces ?? -1,
+        fareInfo: fareDescription || '收費資訊未提供',
+        updateTime: avail?.UpdateTime || '',
+        hourlyRate: fareInfo.hourlyRate,
+        monthlyRate: fareInfo.monthlyRate,
+        fareDescription,
+        serviceTime: segment.ServiceTime,
+      } as ParkingInfo;
+    }).filter((p: any): p is ParkingInfo => p !== null);
   }
 
   private async getNearbyParkingLots(
@@ -186,8 +310,38 @@ export class TdxApiClient {
 
   private async getParkingAvailability(
     city: string,
-    token: string
+    token: string,
+    carParkIds?: string[]
   ): Promise<ParkingAvailability[]> {
+    // Use $filter with specific CarParkIDs for better performance
+    if (carParkIds && carParkIds.length > 0) {
+      const batchSize = 30;
+      const allAvailabilities: ParkingAvailability[] = [];
+      
+      for (let i = 0; i < carParkIds.length; i += batchSize) {
+        const batch = carParkIds.slice(i, i + batchSize);
+        const filterExpr = batch.map(id => `CarParkID eq '${id}'`).join(' or ');
+        const url = `https://tdx.transportdata.tw/api/basic/v1/Parking/OffStreet/ParkingAvailability/City/${city}?$format=JSON&$filter=${filterExpr}`;
+        
+        const response = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        
+        if (!response.ok) {
+          console.warn(`Filtered availability fetch failed: ${response.status}, falling back to full city query`);
+          return this.getParkingAvailability(city, token); // Fallback without filter
+        }
+        
+        const data = await response.json();
+        const availabilities = Array.isArray(data) ? data : (data.ParkingAvailabilities || []);
+        allAvailabilities.push(...availabilities);
+      }
+      
+      console.log(`Fetched ${allAvailabilities.length} filtered availability records from API`);
+      return allAvailabilities;
+    }
+    
+    // Fallback: fetch all availability for the city
     const url = `https://tdx.transportdata.tw/api/basic/v1/Parking/OffStreet/ParkingAvailability/City/${city}?$format=JSON`;
 
     const response = await fetch(url, {
@@ -285,6 +439,7 @@ export class TdxApiClient {
           // 原始資料
           description,
           fareDescription,
+          serviceTime: lot.ServiceTime,
         };
       })
       .filter((p): p is NonNullable<typeof p> => p !== null) as ParkingInfo[];
@@ -377,37 +532,117 @@ export class TdxApiClient {
   }
 
   private getCityFromCoordinates(latitude: number, longitude: number): string | null {
-    // City boundaries (approximate)
-    const cities = [
-      { name: 'Taipei', bounds: { minLat: 24.95, maxLat: 25.2, minLon: 121.45, maxLon: 121.65 } },
-      {
-        name: 'NewTaipei',
-        bounds: { minLat: 24.6, maxLat: 25.3, minLon: 121.3, maxLon: 122.0 },
-      },
-      { name: 'Taoyuan', bounds: { minLat: 24.8, maxLat: 25.1, minLon: 121.0, maxLon: 121.5 } },
-      {
-        name: 'Taichung',
-        bounds: { minLat: 24.0, maxLat: 24.35, minLon: 120.5, maxLon: 121.0 },
-      },
-      { name: 'Tainan', bounds: { minLat: 22.9, maxLat: 23.2, minLon: 120.1, maxLon: 120.5 } },
-      {
-        name: 'Kaohsiung',
-        bounds: { minLat: 22.5, maxLat: 22.8, minLon: 120.2, maxLon: 120.5 },
-      },
-      { name: 'Hsinchu', bounds: { minLat: 24.7, maxLat: 24.9, minLon: 120.9, maxLon: 121.1 } },
-      { name: 'Keelung', bounds: { minLat: 25.1, maxLat: 25.2, minLon: 121.7, maxLon: 121.8 } },
-    ];
+    // City boundaries ordered from most specific (small) to broadest (large)
+    // to avoid overlap issues. TDX API city name values.
 
-    for (const city of cities) {
-      const { minLat, maxLat, minLon, maxLon } = city.bounds;
-      if (
-        latitude >= minLat &&
-        latitude <= maxLat &&
-        longitude >= minLon &&
-        longitude <= maxLon
-      ) {
-        return city.name;
-      }
+    // Keelung
+    if (latitude >= 25.09 && latitude <= 25.18 && longitude >= 121.69 && longitude <= 121.80) {
+      return 'Keelung';
+    }
+
+    // Taipei City
+    if (latitude >= 24.96 && latitude <= 25.21 && longitude >= 121.43 && longitude <= 121.67) {
+      return 'Taipei';
+    }
+
+    // Hsinchu City
+    if (latitude >= 24.73 && latitude <= 24.84 && longitude >= 120.89 && longitude <= 121.05) {
+      return 'Hsinchu';
+    }
+
+    // Chiayi City
+    if (latitude >= 23.43 && latitude <= 23.51 && longitude >= 120.39 && longitude <= 120.50) {
+      return 'Chiayi';
+    }
+
+    // New Taipei City
+    if (latitude >= 24.67 && latitude <= 25.30 && longitude >= 121.28 && longitude <= 122.01) {
+      return 'NewTaipei';
+    }
+
+    // Taoyuan
+    if (latitude >= 24.73 && latitude <= 25.12 && longitude >= 121.01 && longitude <= 121.40) {
+      return 'Taoyuan';
+    }
+
+    // Hsinchu County
+    if (latitude >= 24.53 && latitude <= 24.85 && longitude >= 120.85 && longitude <= 121.35) {
+      return 'HssinchuCounty';
+    }
+
+    // Miaoli County
+    if (latitude >= 24.30 && latitude <= 24.68 && longitude >= 120.62 && longitude <= 121.25) {
+      return 'MiaoliCounty';
+    }
+
+    // Taichung
+    if (latitude >= 24.03 && latitude <= 24.47 && longitude >= 120.47 && longitude <= 121.06) {
+      return 'Taichung';
+    }
+
+    // Changhua County
+    if (latitude >= 23.82 && latitude <= 24.18 && longitude >= 120.25 && longitude <= 120.68) {
+      return 'ChanghuaCounty';
+    }
+
+    // Nantou County
+    if (latitude >= 23.63 && latitude <= 24.11 && longitude >= 120.38 && longitude <= 121.32) {
+      return 'NantouCounty';
+    }
+
+    // Yunlin County
+    if (latitude >= 23.50 && latitude <= 23.82 && longitude >= 120.15 && longitude <= 120.73) {
+      return 'YunlinCounty';
+    }
+
+    // Chiayi County
+    if (latitude >= 23.24 && latitude <= 23.60 && longitude >= 120.30 && longitude <= 120.77) {
+      return 'ChiayiCounty';
+    }
+
+    // Tainan
+    if (latitude >= 22.88 && latitude <= 23.40 && longitude >= 120.04 && longitude <= 120.65) {
+      return 'Tainan';
+    }
+
+    // Kaohsiung
+    if (latitude >= 22.47 && latitude <= 23.47 && longitude >= 120.15 && longitude <= 120.86) {
+      return 'Kaohsiung';
+    }
+
+    // Pingtung County
+    if (latitude >= 21.90 && latitude <= 22.88 && longitude >= 120.36 && longitude <= 120.93) {
+      return 'PingtungCounty';
+    }
+
+    // Yilan County
+    if (latitude >= 24.30 && latitude <= 24.82 && longitude >= 121.35 && longitude <= 121.98) {
+      return 'YilanCounty';
+    }
+
+    // Hualien County
+    if (latitude >= 23.30 && latitude <= 24.35 && longitude >= 121.10 && longitude <= 121.75) {
+      return 'HualienCounty';
+    }
+
+    // Taitung County
+    if (latitude >= 22.30 && latitude <= 23.45 && longitude >= 120.75 && longitude <= 121.55) {
+      return 'TaitungCounty';
+    }
+
+    // Penghu County
+    if (latitude >= 23.20 && latitude <= 23.80 && longitude >= 119.30 && longitude <= 119.72) {
+      return 'PenghuCounty';
+    }
+
+    // Kinmen County
+    if (latitude >= 24.38 && latitude <= 24.52 && longitude >= 118.20 && longitude <= 118.45) {
+      return 'KinmenCounty';
+    }
+
+    // Lienchiang County (Matsu)
+    if (latitude >= 25.94 && latitude <= 26.38 && longitude >= 119.88 && longitude <= 120.51) {
+      return 'LienchiangCounty';
     }
 
     return null;

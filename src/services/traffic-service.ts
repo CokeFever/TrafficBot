@@ -47,6 +47,9 @@ export class TrafficServiceImpl implements TrafficService {
     try {
       // Determine city from coordinates
       const city = this.locationParser.getCityFromCoordinates(location);
+      if (!city) {
+        throw new Error('此位置不在支援的城市範圍內');
+      }
       console.log(`Querying traffic for city: ${city}, location: ${location.latitude},${location.longitude}, radius: ${radius}`);
       
       // Query CMS (Changeable Message Signs) for traffic messages

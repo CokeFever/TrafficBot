@@ -42,9 +42,12 @@ export interface ParkingFacility {
   // 原始資料（用於解析）
   description?: string;
   fareDescription?: string;
+  serviceTime?: string;
 }
 
 export type SearchRadius = 500 | 1000 | 2000; // in meters
+
+export type VehicleType = 'car' | 'motorcycle' | 'all';
 
 export interface TrafficInfo {
   id: string;

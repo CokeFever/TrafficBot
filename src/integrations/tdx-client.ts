@@ -1,6 +1,7 @@
 import { Coordinates } from '../models/types';
 import {
   TdxParkingResponse,
+  TdxOnStreetParkingResponse,
   TdxTrafficResponse,
   TdxEventResponse,
 } from '../models/tdx-types';
@@ -19,6 +20,13 @@ export interface TdxApiClient {
     apiKey: string,
     city?: string
   ): Promise<TdxParkingResponse>;
+
+  queryOnStreetParking(
+    center: Coordinates,
+    radius: number,
+    apiKey: string,
+    city?: string
+  ): Promise<TdxOnStreetParkingResponse>;
 
   queryTrafficFlow(
     bounds: GeoBounds,
@@ -156,32 +164,62 @@ export class TdxApiClientImpl implements TdxApiClient {
     
     console.log(`Found ${carParks.length} nearby parking lots`);
     
-    // Step 2: Get availability data for the city
-    const availEndpoint = `${this.baseUrl}/v1/Parking/OffStreet/ParkingAvailability/City/${cityName}`;
-    const availUrl = `${availEndpoint}?$format=JSON`;
+    // Step 2: Get availability data using $filter with specific CarParkIDs (instead of fetching entire city)
+    const carParkIds = carParks.map((p: any) => p.CarParkID).filter(Boolean);
     
-    console.log(`Fetching availability: ${availUrl}`);
-    
-    const availResponse = await fetch(availUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Accept-Encoding': 'gzip',
-      },
-    });
-    
-    if (!availResponse.ok) {
-      throw new ApiError(availResponse.status, availResponse.statusText);
+    // TDX $filter supports OData syntax: CarParkID eq 'X' or CarParkID eq 'Y'
+    // Limit to 30 IDs per request to avoid URL length issues
+    const batchSize = 30;
+    const batches = [];
+    for (let i = 0; i < carParkIds.length; i += batchSize) {
+      batches.push(carParkIds.slice(i, i + batchSize));
     }
     
-    const availData: any = await availResponse.json();
-    const availabilities = availData.ParkingAvailabilities || availData || [];
+    let allAvailabilities: any[] = [];
     
-    console.log(`Found ${availabilities.length} availability records`);
+    for (const batch of batches) {
+      const filterExpr = batch.map((id: string) => `CarParkID eq '${id}'`).join(' or ');
+      const availEndpoint = `${this.baseUrl}/v1/Parking/OffStreet/ParkingAvailability/City/${cityName}`;
+      const availUrl = `${availEndpoint}?$format=JSON&$filter=${filterExpr}`;
+      
+      console.log(`Fetching availability for ${batch.length} parking lots`);
+      
+      const availResponse = await fetch(availUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept-Encoding': 'gzip',
+        },
+      });
+      
+      if (!availResponse.ok) {
+        console.warn(`Availability fetch failed: ${availResponse.status}, falling back to unfiltered query`);
+        // Fallback: fetch all availability for the city
+        const fallbackUrl = `${availEndpoint}?$format=JSON`;
+        const fallbackResponse = await fetch(fallbackUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Accept-Encoding': 'gzip',
+          },
+        });
+        if (fallbackResponse.ok) {
+          const fallbackData: any = await fallbackResponse.json();
+          allAvailabilities = fallbackData.ParkingAvailabilities || fallbackData || [];
+        }
+        break;
+      }
+      
+      const availData: any = await availResponse.json();
+      const availabilities = availData.ParkingAvailabilities || availData || [];
+      allAvailabilities.push(...availabilities);
+    }
+    
+    console.log(`Found ${allAvailabilities.length} availability records`);
     
     // Step 3: Match parking lots with availability data
     const availMap = new Map();
-    availabilities.forEach((avail: any) => {
+    allAvailabilities.forEach((avail: any) => {
       availMap.set(avail.CarParkID, avail);
     });
     
@@ -198,11 +236,126 @@ export class TdxApiClientImpl implements TdxApiClient {
           Address: park.Address,
           Description: park.Description,  // 加入描述（包含特殊車位資訊）
           FareDescription: park.FareDescription,  // 加入收費說明
+          ServiceTime: park.ServiceTime,  // 加入營業時間
         };
       })
       .filter((item: any) => item !== null);
     
     return { ParkingAvailabilities: combined };
+  }
+
+  async queryOnStreetParking(
+    center: Coordinates,
+    radius: number,
+    apiKey: string,
+    city?: string,
+    vehicleType?: string
+  ): Promise<TdxOnStreetParkingResponse> {
+    const cityName = city || 'Taipei';
+    
+    console.log(`Querying on-street parking for city: ${cityName}, vehicle: ${vehicleType || 'car'}, location: ${center.latitude},${center.longitude}, radius: ${radius}`);
+    
+    const accessToken = await this.getAccessToken(apiKey);
+    
+    // Step 1: Get on-street parking segments for the city
+    const segmentUrl = `${this.baseUrl}/v1/Parking/OnStreet/ParkingSegment/City/${cityName}?$format=JSON&$spatialFilter=nearby(${center.latitude},${center.longitude},${radius})`;
+    
+    console.log(`Fetching on-street segments: ${segmentUrl}`);
+    
+    const segmentResponse = await fetch(segmentUrl, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept-Encoding': 'gzip',
+      },
+    });
+    
+    if (!segmentResponse.ok) {
+      // OnStreet API may not be available for all cities, return empty
+      console.warn(`OnStreet segment API failed for ${cityName}: ${segmentResponse.status}`);
+      return { ParkingSegments: [] };
+    }
+    
+    const segmentData: any = await segmentResponse.json();
+    let segments = Array.isArray(segmentData) ? segmentData : (segmentData.ParkingSegments || []);
+    
+    // Filter by vehicle type if specified
+    if (vehicleType === 'motorcycle') {
+      segments = segments.filter((s: any) => {
+        const parkingType = (s.ParkingType || '').toLowerCase();
+        return parkingType.includes('motorcycle') || parkingType.includes('機車') || parkingType.includes('摩托');
+      });
+    } else if (vehicleType === 'car') {
+      // For car, exclude motorcycle-only segments
+      segments = segments.filter((s: any) => {
+        const parkingType = (s.ParkingType || '').toLowerCase();
+        return !parkingType.includes('motorcycle') || parkingType.includes('car') || parkingType === '';
+      });
+    }
+    
+    if (segments.length === 0) {
+      return { ParkingSegments: [] };
+    }
+    
+    console.log(`Found ${segments.length} on-street parking segments (filtered for ${vehicleType || 'all'})`);
+    
+    // Step 2: Get on-street parking availability
+    const segmentIds = segments.map((s: any) => s.ParkingSegmentID).filter(Boolean);
+    const batchSize = 30;
+    let allAvailabilities: any[] = [];
+    
+    for (let i = 0; i < segmentIds.length; i += batchSize) {
+      const batch = segmentIds.slice(i, i + batchSize);
+      const filterExpr = batch.map((id: string) => `ParkingSegmentID eq '${id}'`).join(' or ');
+      const availUrl = `${this.baseUrl}/v1/Parking/OnStreet/ParkingSegmentAvailability/City/${cityName}?$format=JSON&$filter=${filterExpr}`;
+      
+      const availResponse = await fetch(availUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept-Encoding': 'gzip',
+        },
+      });
+      
+      if (!availResponse.ok) {
+        console.warn(`OnStreet availability fetch failed: ${availResponse.status}`);
+        // Try unfiltered fallback
+        const fallbackUrl = `${this.baseUrl}/v1/Parking/OnStreet/ParkingSegmentAvailability/City/${cityName}?$format=JSON`;
+        const fallbackResponse = await fetch(fallbackUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Accept-Encoding': 'gzip',
+          },
+        });
+        if (fallbackResponse.ok) {
+          const fallbackData: any = await fallbackResponse.json();
+          allAvailabilities = Array.isArray(fallbackData) ? fallbackData : (fallbackData.ParkingSegmentAvailabilities || []);
+        }
+        break;
+      }
+      
+      const availData: any = await availResponse.json();
+      const availabilities = Array.isArray(availData) ? availData : (availData.ParkingSegmentAvailabilities || []);
+      allAvailabilities.push(...availabilities);
+    }
+    
+    // Step 3: Merge segment info with availability
+    const availMap = new Map();
+    allAvailabilities.forEach((avail: any) => {
+      availMap.set(avail.ParkingSegmentID, avail);
+    });
+    
+    const combined = segments.map((segment: any) => {
+      const avail = availMap.get(segment.ParkingSegmentID);
+      return {
+        ...segment,
+        AvailableSpaces: avail?.AvailableSpaces ?? -1,
+        UpdateTime: avail?.UpdateTime || '',
+      };
+    });
+    
+    return { ParkingSegments: combined };
   }
 
   async queryTrafficFlow(

@@ -71,6 +71,13 @@ export function formatParkingResults(results: ParkingInfo[], maxResults: number 
       message += '收費：未提供\n';
     }
     
+    // 營業時間
+    if (parking.serviceTime) {
+      message += `🕐 ${parking.serviceTime}\n`;
+    }
+    
+    // 路邊停車標示（OnStreet 的 name 已帶有 🛣️ 前綴，這裡可選加標註）
+    
     // 導航連結
     message += `[📍 導航](https://www.google.com/maps/dir/?api=1&destination=${parking.latitude},${parking.longitude})\n`;
     

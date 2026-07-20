@@ -6,6 +6,7 @@ import { formatParkingResults, formatTrafficResults, formatError, formatRadiusTe
 export interface MessageSender {
   sendText(text: string, options?: MessageOptions): Promise<void>;
   sendTextWithRadiusButtons(text: string, command: 'parking' | 'traffic'): Promise<void>;
+  sendTextWithVehicleButtons?(text: string): Promise<void>;
   sendTextWithLocationRequest(text: string): Promise<void>;
 }
 
@@ -22,10 +23,12 @@ export async function handleParkingQueryCore(
   radius: number,
   userId: string,
   supabase: any,
-  sender: MessageSender
+  sender: MessageSender,
+  vehicleType?: 'car' | 'motorcycle'
 ): Promise<void> {
   try {
-    await sender.sendText('🔍 查詢中...');
+    const vehicleLabel = vehicleType === 'motorcycle' ? '🏍️ 機車' : vehicleType === 'car' ? '🚗 小客車' : '🚗🏍️ 全部';
+    await sender.sendText(`🔍 搜尋${vehicleLabel}停車位中...`);
 
     const config = await getUserConfig(userId, supabase);
     let apiKey = config?.tdx_api_key;
@@ -44,7 +47,7 @@ export async function handleParkingQueryCore(
     }
 
     const tdxClient = new TdxApiClient(apiKey);
-    const results = await tdxClient.queryNearbyParking(latitude, longitude, radius);
+    const results = await tdxClient.queryNearbyParking(latitude, longitude, radius, vehicleType);
 
     // Log query
     await supabase.from('query_logs').insert({

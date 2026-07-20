@@ -1,6 +1,6 @@
-import { Coordinates, ParkingFacility, SearchRadius } from '../models/types';
+import { Coordinates, ParkingFacility, SearchRadius, VehicleType } from '../models/types';
 import { TdxApiClientImpl } from '../integrations/tdx-client';
-import { transformTdxParking } from '../models/tdx-types';
+import { transformTdxParking, transformTdxOnStreetParking } from '../models/tdx-types';
 import { CacheLayer } from './cache';
 import { LocationParser } from '../utils/location-parser';
 
@@ -8,7 +8,8 @@ export interface ParkingService {
   searchNearby(
     location: Coordinates,
     radius: SearchRadius,
-    apiKey: string
+    apiKey: string,
+    vehicleType?: VehicleType
   ): Promise<ParkingFacility[]>;
 
   formatParkingInfo(facilities: ParkingFacility[]): string;
@@ -21,6 +22,10 @@ export class ParkingServiceImpl implements ParkingService {
   private cache: CacheLayer;
   private locationParser: LocationParser;
 
+  // Cache TTLs
+  private static readonly STATIC_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours for static data (lot info, location, fare)
+  private static readonly AVAILABILITY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes for availability data
+
   constructor(tdxClient: TdxApiClientImpl, cache: CacheLayer) {
     this.tdxClient = tdxClient;
     this.cache = cache;
@@ -30,45 +35,103 @@ export class ParkingServiceImpl implements ParkingService {
   async searchNearby(
     location: Coordinates,
     radius: SearchRadius,
-    apiKey: string
+    apiKey: string,
+    vehicleType: VehicleType = 'all'
   ): Promise<ParkingFacility[]> {
-    // Generate cache key
-    const cacheKey = this.cache.generateKey('parking', {
+    // Cache key for final combined result (short TTL - includes availability)
+    const resultCacheKey = this.cache.generateKey('parking:result', {
       lat: location.latitude,
       lon: location.longitude,
       radius,
+      vehicleType,
     });
 
-    // Check cache
-    const cached = await this.cache.get(cacheKey);
-    if (cached) {
-      return cached as ParkingFacility[];
+    // Check availability cache first (short-lived)
+    const cachedResult = await this.cache.get(resultCacheKey);
+    if (cachedResult) {
+      return cachedResult as ParkingFacility[];
     }
 
     try {
       // Determine city from coordinates
       const city = this.locationParser.getCityFromCoordinates(location);
-      console.log(`Querying parking for city: ${city}, location: ${location.latitude},${location.longitude}, radius: ${radius}`);
+      if (!city) {
+        throw new Error('此位置不在支援的城市範圍內');
+      }
+      console.log(`Querying parking for city: ${city}, vehicle: ${vehicleType}, location: ${location.latitude},${location.longitude}, radius: ${radius}`);
       
-      // Query TDX API
-      const response = await this.tdxClient.queryParkingFacilities(
+      // Query TDX API - OffStreet (路外停車場)
+      const offStreetResponse = await this.tdxClient.queryParkingFacilities(
         location,
         radius,
         apiKey,
         city
       );
 
-      // Transform results
-      const facilities = transformTdxParking(response, location);
+      // Transform OffStreet results
+      let offStreetFacilities = transformTdxParking(offStreetResponse, location);
+      
+      // For motorcycle queries, filter OffStreet to only show those with motorcycle spaces
+      if (vehicleType === 'motorcycle') {
+        offStreetFacilities = offStreetFacilities.filter(f => 
+          f.heavyMotorcycleSpaces && f.heavyMotorcycleSpaces > 0
+        );
+      }
+      
+      // Query TDX API - OnStreet (路邊停車)
+      let onStreetFacilities: ParkingFacility[] = [];
+      try {
+        const onStreetResponse = await this.tdxClient.queryOnStreetParking(
+          location,
+          radius,
+          apiKey,
+          city,
+          vehicleType
+        );
+        onStreetFacilities = transformTdxOnStreetParking(onStreetResponse, location);
+      } catch (error) {
+        // OnStreet data may not be available for all cities, continue with OffStreet only
+        console.warn('OnStreet parking query failed, using OffStreet only:', error);
+      }
+      
+      // Combine both results
+      const allFacilities = [...offStreetFacilities, ...onStreetFacilities];
       
       // Filter by radius (since API doesn't support $spatialFilter reliably)
-      const filtered = facilities.filter(f => f.distance <= radius);
+      const filtered = allFacilities.filter(f => f.distance <= radius);
       
       // Sort by distance
       const sorted = this.sortByDistance(filtered);
 
-      // Cache results
-      await this.cache.set(cacheKey, sorted);
+      // Cache combined result with short TTL (availability data changes frequently)
+      await this.cache.set(resultCacheKey, sorted, ParkingServiceImpl.AVAILABILITY_CACHE_TTL);
+      
+      // Also cache static info separately with long TTL for future optimization
+      const staticCacheKey = this.cache.generateKey('parking:static', {
+        lat: location.latitude,
+        lon: location.longitude,
+        radius,
+      });
+      const staticData = sorted.map(f => ({
+        id: f.id,
+        name: f.name,
+        address: f.address,
+        location: f.location,
+        type: f.type,
+        fee: f.fee,
+        fareDescription: f.fareDescription,
+        serviceTime: f.serviceTime,
+        description: f.description,
+        distance: f.distance,
+        heavyMotorcycleSpaces: f.heavyMotorcycleSpaces,
+        chargingSpaces: f.chargingSpaces,
+        handicapSpaces: f.handicapSpaces,
+        womenChildrenSpaces: f.womenChildrenSpaces,
+        hourlyRate: f.hourlyRate,
+        monthlyRate: f.monthlyRate,
+        motorcycleMonthlyRate: f.motorcycleMonthlyRate,
+      }));
+      await this.cache.set(staticCacheKey, staticData, ParkingServiceImpl.STATIC_CACHE_TTL);
 
       return sorted;
     } catch (error) {
@@ -143,6 +206,16 @@ export class ParkingServiceImpl implements ParkingService {
         }
       } else {
         lines.push('收費：未提供');
+      }
+      
+      // 營業時間
+      if (facility.serviceTime) {
+        lines.push(`🕐 ${facility.serviceTime}`);
+      }
+      
+      // 類型標示
+      if (facility.type === 'street_parking') {
+        lines.push('📌 路邊停車');
       }
       
       // 導航連結

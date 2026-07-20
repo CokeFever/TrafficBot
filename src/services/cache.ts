@@ -29,9 +29,20 @@ export class CacheLayer {
     return value;
   }
 
-  async set(key: string, value: any, ttl?: number): Promise<void> {
+  /**
+   * Set a cache entry with optional TTL in milliseconds.
+   * @param key Cache key
+   * @param value Value to cache
+   * @param ttlMs Time-to-live in milliseconds (default: 5 minutes)
+   * 
+   * Common TTLs:
+   * - Static data (parking lot info): 24 * 60 * 60 * 1000 (24 hours)
+   * - Availability data: 5 * 60 * 1000 (5 minutes)
+   * - Traffic data: 5 * 60 * 1000 (5 minutes)
+   */
+  async set(key: string, value: any, ttlMs?: number): Promise<void> {
     const cacheKey = this.getCacheKey(key);
-    const expiresAt = Date.now() + (ttl || this.DEFAULT_TTL);
+    const expiresAt = Date.now() + (ttlMs || this.DEFAULT_TTL);
 
     await this.dataStore.set(cacheKey, {
       value,

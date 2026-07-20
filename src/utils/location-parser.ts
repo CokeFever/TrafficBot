@@ -155,47 +155,125 @@ export class LocationParser {
   }
 
   // Determine city from coordinates
-  getCityFromCoordinates(coords: Coordinates): string {
+  // TDX API city names reference: https://tdx.transportdata.tw/api-service/swagger
+  getCityFromCoordinates(coords: Coordinates): string | null {
     const { latitude, longitude } = coords;
 
-    // Taiwan major cities boundaries (approximate)
-    // Taipei City: 25.0°N-25.2°N, 121.4°E-121.7°E
-    if (latitude >= 25.0 && latitude <= 25.2 && longitude >= 121.4 && longitude <= 121.7) {
+    // City boundaries ordered from most specific (small) to broadest (large)
+    // to avoid overlap issues
+
+    // Keelung: 25.09°N-25.18°N, 121.69°E-121.80°E
+    if (latitude >= 25.09 && latitude <= 25.18 && longitude >= 121.69 && longitude <= 121.80) {
+      return 'Keelung';
+    }
+
+    // Taipei City: 24.96°N-25.21°N, 121.43°E-121.67°E
+    if (latitude >= 24.96 && latitude <= 25.21 && longitude >= 121.43 && longitude <= 121.67) {
       return 'Taipei';
     }
 
-    // New Taipei City: surrounding Taipei
-    if (latitude >= 24.6 && latitude <= 25.3 && longitude >= 121.2 && longitude <= 122.0) {
-      return 'NewTaipei';
-    }
-
-    // Taoyuan: 24.8°N-25.1°N, 121.0°E-121.5°E
-    if (latitude >= 24.8 && latitude <= 25.1 && longitude >= 121.0 && longitude <= 121.5) {
-      return 'Taoyuan';
-    }
-
-    // Taichung: 24.0°N-24.3°N, 120.5°E-121.0°E
-    if (latitude >= 24.0 && latitude <= 24.3 && longitude >= 120.5 && longitude <= 121.0) {
-      return 'Taichung';
-    }
-
-    // Tainan: 22.9°N-23.2°N, 120.1°E-120.5°E
-    if (latitude >= 22.9 && latitude <= 23.2 && longitude >= 120.1 && longitude <= 120.5) {
-      return 'Tainan';
-    }
-
-    // Kaohsiung: 22.5°N-22.8°N, 120.2°E-120.5°E
-    if (latitude >= 22.5 && latitude <= 22.8 && longitude >= 120.2 && longitude <= 120.5) {
-      return 'Kaohsiung';
-    }
-
-    // Hsinchu: 24.7°N-24.9°N, 120.9°E-121.1°E
-    if (latitude >= 24.7 && latitude <= 24.9 && longitude >= 120.9 && longitude <= 121.1) {
+    // Hsinchu City: 24.73°N-24.84°N, 120.89°E-121.05°E
+    if (latitude >= 24.73 && latitude <= 24.84 && longitude >= 120.89 && longitude <= 121.05) {
       return 'Hsinchu';
     }
 
-    // Default to Taipei if can't determine
-    return 'Taipei';
+    // Chiayi City: 23.43°N-23.51°N, 120.39°E-120.50°E
+    if (latitude >= 23.43 && latitude <= 23.51 && longitude >= 120.39 && longitude <= 120.50) {
+      return 'Chiayi';
+    }
+
+    // New Taipei City: surrounds Taipei, broader area
+    if (latitude >= 24.67 && latitude <= 25.30 && longitude >= 121.28 && longitude <= 122.01) {
+      return 'NewTaipei';
+    }
+
+    // Taoyuan: 24.73°N-25.12°N, 121.01°E-121.40°E
+    if (latitude >= 24.73 && latitude <= 25.12 && longitude >= 121.01 && longitude <= 121.40) {
+      return 'Taoyuan';
+    }
+
+    // Hsinchu County: 24.53°N-24.85°N, 120.85°E-121.35°E
+    if (latitude >= 24.53 && latitude <= 24.85 && longitude >= 120.85 && longitude <= 121.35) {
+      return 'HssinchuCounty';
+    }
+
+    // Miaoli County: 24.30°N-24.68°N, 120.62°E-121.25°E
+    if (latitude >= 24.30 && latitude <= 24.68 && longitude >= 120.62 && longitude <= 121.25) {
+      return 'MiaoliCounty';
+    }
+
+    // Taichung: 24.03°N-24.47°N, 120.47°E-121.06°E
+    if (latitude >= 24.03 && latitude <= 24.47 && longitude >= 120.47 && longitude <= 121.06) {
+      return 'Taichung';
+    }
+
+    // Changhua County: 23.82°N-24.18°N, 120.25°E-120.68°E
+    if (latitude >= 23.82 && latitude <= 24.18 && longitude >= 120.25 && longitude <= 120.68) {
+      return 'ChanghuaCounty';
+    }
+
+    // Nantou County: 23.63°N-24.11°N, 120.38°E-121.32°E
+    if (latitude >= 23.63 && latitude <= 24.11 && longitude >= 120.38 && longitude <= 121.32) {
+      return 'NantouCounty';
+    }
+
+    // Yunlin County: 23.50°N-23.82°N, 120.15°E-120.73°E
+    if (latitude >= 23.50 && latitude <= 23.82 && longitude >= 120.15 && longitude <= 120.73) {
+      return 'YunlinCounty';
+    }
+
+    // Chiayi County: 23.24°N-23.60°N, 120.30°E-120.77°E
+    if (latitude >= 23.24 && latitude <= 23.60 && longitude >= 120.30 && longitude <= 120.77) {
+      return 'ChiayiCounty';
+    }
+
+    // Tainan: 22.88°N-23.40°N, 120.04°E-120.65°E
+    if (latitude >= 22.88 && latitude <= 23.40 && longitude >= 120.04 && longitude <= 120.65) {
+      return 'Tainan';
+    }
+
+    // Kaohsiung: 22.47°N-23.47°N, 120.15°E-120.86°E
+    if (latitude >= 22.47 && latitude <= 23.47 && longitude >= 120.15 && longitude <= 120.86) {
+      return 'Kaohsiung';
+    }
+
+    // Pingtung County: 21.90°N-22.88°N, 120.36°E-120.93°E
+    if (latitude >= 21.90 && latitude <= 22.88 && longitude >= 120.36 && longitude <= 120.93) {
+      return 'PingtungCounty';
+    }
+
+    // Yilan County: 24.30°N-24.82°N, 121.35°E-121.98°E
+    if (latitude >= 24.30 && latitude <= 24.82 && longitude >= 121.35 && longitude <= 121.98) {
+      return 'YilanCounty';
+    }
+
+    // Hualien County: 23.30°N-24.35°N, 121.10°E-121.75°E
+    if (latitude >= 23.30 && latitude <= 24.35 && longitude >= 121.10 && longitude <= 121.75) {
+      return 'HualienCounty';
+    }
+
+    // Taitung County: 22.30°N-23.45°N, 120.75°E-121.55°E
+    if (latitude >= 22.30 && latitude <= 23.45 && longitude >= 120.75 && longitude <= 121.55) {
+      return 'TaitungCounty';
+    }
+
+    // Penghu County: 23.20°N-23.80°N, 119.30°E-119.72°E
+    if (latitude >= 23.20 && latitude <= 23.80 && longitude >= 119.30 && longitude <= 119.72) {
+      return 'PenghuCounty';
+    }
+
+    // Kinmen County: 24.38°N-24.52°N, 118.20°E-118.45°E
+    if (latitude >= 24.38 && latitude <= 24.52 && longitude >= 118.20 && longitude <= 118.45) {
+      return 'KinmenCounty';
+    }
+
+    // Lienchiang County (Matsu): 25.94°N-26.38°N, 119.88°E-120.51°E
+    if (latitude >= 25.94 && latitude <= 26.38 && longitude >= 119.88 && longitude <= 120.51) {
+      return 'LienchiangCounty';
+    }
+
+    // Not in any known city boundary
+    return null;
   }
 
   // Helper: Extract coordinates from string

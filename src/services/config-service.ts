@@ -18,7 +18,11 @@ export class ConfigServiceImpl implements ConfigService {
 
   constructor(dataStore: DataStore, encryptionKey?: string) {
     this.dataStore = dataStore;
-    this.encryptionKey = encryptionKey || process.env.ENCRYPTION_KEY || 'default-key-change-me';
+    const key = encryptionKey || process.env.ENCRYPTION_KEY;
+    if (!key) {
+      throw new Error('ENCRYPTION_KEY environment variable is required. Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
+    }
+    this.encryptionKey = key;
   }
 
   async isConfigured(userId: string): Promise<boolean> {
@@ -43,10 +47,25 @@ export class ConfigServiceImpl implements ConfigService {
     }
 
     try {
+      // Try decrypting with current (new) salt
       return this.decrypt(config.tdxApiKey);
-    } catch (error) {
-      console.error('Failed to decrypt API key:', error);
-      return null;
+    } catch {
+      // If new salt fails, try legacy salt for backward compatibility
+      try {
+        const decrypted = this.decryptLegacy(config.tdxApiKey);
+        
+        // Auto-migrate: re-encrypt with new salt and save
+        console.log(`Auto-migrating encryption for user ${userId}`);
+        const reEncrypted = this.encrypt(decrypted);
+        config.tdxApiKey = reEncrypted;
+        config.updatedAt = new Date();
+        await this.saveConfig(userId, config);
+        
+        return decrypted;
+      } catch (legacyError) {
+        console.error('Failed to decrypt API key with both new and legacy salt:', legacyError);
+        return null;
+      }
     }
   }
 
@@ -159,7 +178,9 @@ export class ConfigServiceImpl implements ConfigService {
 
   private encrypt(text: string): string {
     const algorithm = 'aes-256-cbc';
-    const key = crypto.scryptSync(this.encryptionKey, 'salt', 32);
+    // Use first 16 bytes of encryption key hash as salt for key derivation
+    const salt = crypto.createHash('sha256').update(this.encryptionKey).digest().slice(0, 16);
+    const key = crypto.scryptSync(this.encryptionKey, salt, 32);
     const iv = crypto.randomBytes(16);
 
     const cipher = crypto.createCipheriv(algorithm, key, iv);
@@ -170,6 +191,22 @@ export class ConfigServiceImpl implements ConfigService {
   }
 
   private decrypt(encryptedText: string): string {
+    const algorithm = 'aes-256-cbc';
+    const salt = crypto.createHash('sha256').update(this.encryptionKey).digest().slice(0, 16);
+    const key = crypto.scryptSync(this.encryptionKey, salt, 32);
+
+    const [ivHex, encrypted] = encryptedText.split(':');
+    const iv = Buffer.from(ivHex, 'hex');
+
+    const decipher = crypto.createDecipheriv(algorithm, key, iv);
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+
+    return decrypted;
+  }
+
+  // Legacy decrypt for backward compatibility with data encrypted before salt fix
+  private decryptLegacy(encryptedText: string): string {
     const algorithm = 'aes-256-cbc';
     const key = crypto.scryptSync(this.encryptionKey, 'salt', 32);
 

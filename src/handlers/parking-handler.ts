@@ -2,12 +2,13 @@ import { Context } from 'telegraf';
 import { ParkingService } from '../services/parking-service';
 import { ConfigService } from '../services/config-service';
 import { LocationParser } from '../utils/location-parser';
-import { Coordinates, SearchRadius } from '../models/types';
+import { Coordinates, SearchRadius, VehicleType } from '../models/types';
 
 interface ParkingSearchState {
-  step: 'waiting_location' | 'waiting_radius' | 'complete';
+  step: 'waiting_vehicle_type' | 'waiting_location' | 'waiting_radius' | 'complete';
   location?: Coordinates;
   radius?: SearchRadius;
+  vehicleType?: VehicleType;
 }
 
 export class ParkingHandler {
@@ -38,8 +39,20 @@ export class ParkingHandler {
       return;
     }
 
-    // Start parking search flow
-    this.userStates.set(userId, { step: 'waiting_location' });
+    // Start parking search flow - ask for vehicle type first
+    this.userStates.set(userId, { step: 'waiting_vehicle_type' });
+    await this.promptVehicleType(ctx);
+  }
+
+  async handleVehicleTypeSelection(ctx: Context, vehicleType: string): Promise<void> {
+    const userId = ctx.from?.id.toString();
+    if (!userId) return;
+
+    const state = this.userStates.get(userId);
+    if (!state || state.step !== 'waiting_vehicle_type') return;
+
+    state.vehicleType = vehicleType as VehicleType;
+    state.step = 'waiting_location';
     await this.promptLocation(ctx);
   }
 
@@ -93,7 +106,21 @@ export class ParkingHandler {
     state.radius = radiusValue;
     state.step = 'complete';
 
-    await this.performSearch(ctx, userId, state.location, radiusValue);
+    await this.performSearch(ctx, userId, state.location, radiusValue, state.vehicleType);
+  }
+
+  private async promptVehicleType(ctx: Context): Promise<void> {
+    const message = '🚗 請選擇車種：';
+
+    await ctx.reply(message, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🚗 小客車', callback_data: 'parking:vehicle:car' }],
+          [{ text: '🏍️ 機車', callback_data: 'parking:vehicle:motorcycle' }],
+          [{ text: '🔍 全部（汽車＋機車）', callback_data: 'parking:vehicle:all' }],
+        ],
+      },
+    });
   }
 
   private async promptLocation(ctx: Context): Promise<void> {
@@ -134,7 +161,8 @@ export class ParkingHandler {
     ctx: Context,
     userId: string,
     location: Coordinates,
-    radius: SearchRadius
+    radius: SearchRadius,
+    vehicleType?: VehicleType
   ): Promise<void> {
     try {
       // Get user's API key
@@ -146,10 +174,11 @@ export class ParkingHandler {
       }
 
       // Show searching message
-      await ctx.reply('🔍 搜尋中...');
+      const vehicleLabel = vehicleType === 'motorcycle' ? '🏍️ 機車' : vehicleType === 'car' ? '🚗 小客車' : '🚗🏍️ 全部';
+      await ctx.reply(`🔍 搜尋${vehicleLabel}停車位中...`);
 
       // Search parking facilities
-      const facilities = await this.parkingService.searchNearby(location, radius, apiKey);
+      const facilities = await this.parkingService.searchNearby(location, radius, apiKey, vehicleType);
 
       // Format and send results
       if (facilities.length === 0) {

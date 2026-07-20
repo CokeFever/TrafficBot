@@ -21,6 +21,24 @@ export interface TdxParkingResponse {
   }>;
 }
 
+export interface TdxOnStreetParkingResponse {
+  ParkingSegments: Array<{
+    ParkingSegmentID: string;
+    ParkingSegmentName?: { Zh_tw: string; En?: string };
+    RoadName?: string;
+    RoadSection?: string;
+    Direction?: string;
+    Position?: { PositionLat: number; PositionLon: number };
+    ParkingSegmentPosition?: { PositionLat: number; PositionLon: number };
+    TotalSpaces?: number;
+    ParkingType?: string; // 'Car' | 'Motorcycle' | 'HeavyMotorcycle'
+    FareDescription?: { Zh_tw: string } | string;
+    ServiceTime?: string;
+    AvailableSpaces?: number;
+    UpdateTime?: string;
+  }>;
+}
+
 export interface TdxTrafficResponse {
   LiveTraffics: Array<{
     RoadID: string;
@@ -188,6 +206,59 @@ export function transformTdxParking(
       // 原始資料
       description,
       fareDescription,
+      serviceTime: (item as any).ServiceTime,
+    };
+  });
+  
+  return results.filter((item): item is ParkingFacility => item !== null);
+}
+
+export function transformTdxOnStreetParking(
+  tdxData: TdxOnStreetParkingResponse,
+  referencePoint: Coordinates
+): ParkingFacility[] {
+  const results = tdxData.ParkingSegments.map((segment): ParkingFacility | null => {
+    const position = segment.Position || segment.ParkingSegmentPosition;
+    const lat = position?.PositionLat;
+    const lon = position?.PositionLon;
+    
+    if (!lat || !lon) {
+      return null;
+    }
+    
+    const location = { latitude: lat, longitude: lon };
+    
+    // Build name from road info
+    const segmentName = segment.ParkingSegmentName?.Zh_tw || '';
+    const roadName = segment.RoadName || '';
+    const roadSection = segment.RoadSection || '';
+    const name = segmentName || `${roadName}${roadSection ? ` (${roadSection})` : ''}` || segment.ParkingSegmentID;
+    
+    // Parse fare description
+    const fareDescription = typeof segment.FareDescription === 'string' 
+      ? segment.FareDescription 
+      : segment.FareDescription?.Zh_tw || '';
+    const fareInfo = parseFareInfo(fareDescription);
+    
+    return {
+      id: segment.ParkingSegmentID,
+      name,
+      address: `${roadName}${roadSection ? ` ${roadSection}` : ''}`,
+      location,
+      totalSpaces: segment.TotalSpaces || 0,
+      availableSpaces: segment.AvailableSpaces ?? -1,
+      fee: fareDescription || '資訊未提供',
+      distance: calculateDistance(referencePoint, location),
+      type: 'street_parking',
+      
+      // Fare details
+      hourlyRate: fareInfo.hourlyRate,
+      monthlyRate: fareInfo.monthlyRate,
+      motorcycleMonthlyRate: fareInfo.motorcycleMonthlyRate,
+      
+      // Raw data
+      fareDescription,
+      serviceTime: segment.ServiceTime,
     };
   });
   

@@ -153,6 +153,22 @@ function createLineSender(replyToken: string, lineUserId: string, accessToken: s
       }]);
     },
 
+    async sendTextWithVehicleButtons(text: string) {
+      await sendMessages([{
+        type: 'template',
+        altText: text,
+        template: {
+          type: 'buttons',
+          text: text.substring(0, 60),
+          actions: [
+            { type: 'postback', label: '🚗 小客車', data: 'parking:vehicle:car' },
+            { type: 'postback', label: '🏍️ 機車', data: 'parking:vehicle:motorcycle' },
+            { type: 'postback', label: '🔍 全部', data: 'parking:vehicle:all' },
+          ],
+        },
+      }]);
+    },
+
     async sendTextWithLocationRequest(text: string) {
       await sendMessages([{
         type: 'text',
@@ -170,6 +186,13 @@ async function handleTextMessage(text: string, userId: string, supabase: any, se
   // Check for commands
   if (trimmed === '停車' || trimmed === '/parking' || trimmed.startsWith('停車 ')) {
     await handleParkingCommand(trimmed, userId, supabase, sender);
+    return;
+  }
+
+  // Shortcut for motorcycle parking
+  if (trimmed === '機車停車' || trimmed === '機車') {
+    await saveUserState(userId, { command: 'parking', vehicleType: 'motorcycle' }, supabase);
+    await sender.sendTextWithRadiusButtons('🏍️ 機車停車 - 請選擇搜尋範圍：', 'parking');
     return;
   }
 
@@ -220,18 +243,9 @@ async function handleParkingCommand(text: string, userId: string, supabase: any,
   const parts = text.split(/\s+/);
   const radiusArg = parts.length > 1 ? parts[parts.length - 1] : null;
 
-  if (radiusArg) {
-    const radius = parseRadius(radiusArg);
-    if (radius) {
-      await saveUserState(userId, { command: 'parking', radius }, supabase);
-      await sender.sendTextWithLocationRequest(`請分享你的位置（搜尋範圍：${formatRadiusText(radius)}）`);
-    } else {
-      await sender.sendText('無效的半徑參數，請使用 250m、500m 或 1km');
-    }
-  } else {
-    await saveUserState(userId, { command: 'parking' }, supabase);
-    await sender.sendTextWithRadiusButtons('請選擇搜尋範圍：', 'parking');
-  }
+  // Save initial state with optional radius arg, then ask for vehicle type
+  await saveUserState(userId, { command: 'parking', radiusArg }, supabase);
+  await sender.sendTextWithVehicleButtons('🚗 請選擇車種：');
 }
 
 async function handleTrafficCommand(text: string, userId: string, supabase: any, sender: MessageSender) {
@@ -289,7 +303,7 @@ async function handleLocation(latitude: number, longitude: number, userId: strin
   if (state.radius) {
     // Already have radius, execute query
     if (state.command === 'parking') {
-      await handleParkingQueryCore(latitude, longitude, state.radius, userId, supabase, sender);
+      await handleParkingQueryCore(latitude, longitude, state.radius, userId, supabase, sender, state.vehicleType);
     } else if (state.command === 'traffic') {
       await handleTrafficQueryCore(latitude, longitude, state.radius, userId, supabase, sender);
     }
@@ -305,25 +319,48 @@ async function handlePostback(data: string, userId: string, supabase: any, sende
   const state = await getUserState(userId, supabase);
   if (!state) return;
 
-  // Parse postback data: "parking:radius:500" or "traffic:radius:1000"
+  // Parse postback data: "parking:vehicle:car", "parking:radius:500", "traffic:radius:1000"
   const parts = data.split(':');
-  if (parts.length !== 3 || parts[1] !== 'radius') return;
+  if (parts.length !== 3) return;
 
   const command = parts[0];
-  const radius = parseInt(parts[2]);
+  const action = parts[1];
+  const value = parts[2];
 
-  if (state.latitude && state.longitude) {
-    // Already have location, execute query
-    if (command === 'parking') {
-      await handleParkingQueryCore(state.latitude, state.longitude, radius, userId, supabase, sender);
-    } else if (command === 'traffic') {
-      await handleTrafficQueryCore(state.latitude, state.longitude, radius, userId, supabase, sender);
+  if (action === 'vehicle') {
+    // Vehicle type selected for parking
+    const vehicleType = value; // 'car' or 'motorcycle'
+    
+    // Check if radius was already provided
+    if (state.radiusArg) {
+      const radius = parseRadius(state.radiusArg);
+      if (radius) {
+        await saveUserState(userId, { command: 'parking', radius, vehicleType }, supabase);
+        const vehicleLabel = vehicleType === 'motorcycle' ? '🏍️ 機車' : vehicleType === 'car' ? '🚗 小客車' : '🚗🏍️ 全部';
+        await sender.sendTextWithLocationRequest(`請分享你的位置（搜尋${vehicleLabel}，範圍：${formatRadiusText(radius)}）`);
+        return;
+      }
     }
-    await clearUserState(userId, supabase);
-  } else {
-    // Save radius and ask for location
-    await saveUserState(userId, { command, radius }, supabase);
-    await sender.sendTextWithLocationRequest(`請分享你的位置（搜尋範圍：${formatRadiusText(radius)}）`);
+    
+    // No radius yet, ask for it
+    await saveUserState(userId, { command: 'parking', vehicleType }, supabase);
+    await sender.sendTextWithRadiusButtons('請選擇搜尋範圍：', 'parking');
+  } else if (action === 'radius') {
+    const radius = parseInt(value);
+
+    if (state.latitude && state.longitude) {
+      // Already have location, execute query
+      if (command === 'parking') {
+        await handleParkingQueryCore(state.latitude, state.longitude, radius, userId, supabase, sender, state.vehicleType);
+      } else if (command === 'traffic') {
+        await handleTrafficQueryCore(state.latitude, state.longitude, radius, userId, supabase, sender);
+      }
+      await clearUserState(userId, supabase);
+    } else {
+      // Save radius and ask for location
+      await saveUserState(userId, { ...state, command, radius }, supabase);
+      await sender.sendTextWithLocationRequest(`請分享你的位置（搜尋範圍：${formatRadiusText(radius)}）`);
+    }
   }
 }
 
@@ -347,7 +384,7 @@ async function handleMapsUrl(text: string, userId: string, supabase: any, sender
 
   if (state.radius) {
     if (state.command === 'parking') {
-      await handleParkingQueryCore(coords.latitude, coords.longitude, state.radius, userId, supabase, sender);
+      await handleParkingQueryCore(coords.latitude, coords.longitude, state.radius, userId, supabase, sender, state.vehicleType);
     } else if (state.command === 'traffic') {
       await handleTrafficQueryCore(coords.latitude, coords.longitude, state.radius, userId, supabase, sender);
     }
@@ -375,7 +412,7 @@ async function handlePoiSearchFlow(text: string, userId: string, supabase: any, 
   if (state.radius) {
     await sender.sendText(`📍 ${result.displayName}`);
     if (state.command === 'parking') {
-      await handleParkingQueryCore(result.latitude, result.longitude, state.radius, userId, supabase, sender);
+      await handleParkingQueryCore(result.latitude, result.longitude, state.radius, userId, supabase, sender, state.vehicleType);
     } else if (state.command === 'traffic') {
       await handleTrafficQueryCore(result.latitude, result.longitude, state.radius, userId, supabase, sender);
     }
@@ -412,13 +449,17 @@ function getHelpMessage(): string {
 📖 泊車小弟 使用說明
 
 ✅ 功能：
-「停車」查詢附近車位 [250m, 500m, 1km]
-  例如：停車 或 停車 500m
+「停車」查詢附近車位
+  支援🚗小客車和🏍️機車
+  包含路外停車場＋路邊停車格
+  顯示空位、收費、營業時間、導航
 
 「路況」查詢附近路況 [250m, 500m, 1km]
   例如：路況 或 路況 1km
 
 📍 位置可以直接分享位置、貼上 Google Maps 連結、或輸入地點名稱
+
+🌍 支援全台 22 縣市
 
 ⚙️ 設定：
 「設定」- 設定個人 TDX API Key

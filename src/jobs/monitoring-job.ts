@@ -1,12 +1,8 @@
-import { NotificationService } from '../services/notification-service';
+// Monitoring Job - placeholder for future implementation
+// Will be used for scheduled traffic monitoring and notifications
 
 export class MonitoringJob {
-  private notificationService: NotificationService;
   private isRunning: boolean = false;
-
-  constructor(notificationService: NotificationService) {
-    this.notificationService = notificationService;
-  }
 
   async execute(): Promise<void> {
     if (this.isRunning) {
@@ -19,18 +15,12 @@ export class MonitoringJob {
 
     try {
       console.log('[Monitoring Job] Starting monitoring task...');
-      await this.notificationService.runMonitoringTask();
+      // TODO: Implement monitoring logic when notification service is ready
       
       const duration = Date.now() - startTime;
       console.log(`[Monitoring Job] Completed successfully in ${duration}ms`);
     } catch (error) {
       console.error('[Monitoring Job] Failed:', error);
-      
-      // Log error details for debugging
-      if (error instanceof Error) {
-        console.error('Error message:', error.message);
-        console.error('Error stack:', error.stack);
-      }
     } finally {
       this.isRunning = false;
     }
@@ -39,11 +29,4 @@ export class MonitoringJob {
   getStatus(): { isRunning: boolean } {
     return { isRunning: this.isRunning };
   }
-}
-
-// Export a factory function for creating monitoring job instances
-export function createMonitoringJob(
-  notificationService: NotificationService
-): MonitoringJob {
-  return new MonitoringJob(notificationService);
 }
