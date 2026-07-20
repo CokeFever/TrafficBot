@@ -96,7 +96,11 @@ function formatParkingList(items: ParkingInfo[]): string {
     const categoryIcon = parking.parkingCategory === 'onstreet' ? '🛣️' : '🅿️';
     const categoryLabel = parking.parkingCategory === 'onstreet' ? '路邊' : '停車場';
     message += `${categoryIcon} ${parking.name}（${categoryLabel}）\n`;
-    message += `距離：${formatDistance(parking.distance)}\n`;
+    
+    // Distance — skip for approximate results
+    if (!parking.isApproximate) {
+      message += `距離：${formatDistance(parking.distance)}\n`;
+    }
 
     // 車位 — 路邊停車只在有即時資料時顯示
     if (parking.parkingCategory === 'onstreet') {
@@ -159,7 +163,13 @@ function formatParkingList(items: ParkingInfo[]): string {
     }
 
     // 導航連結
-    message += `[📍 導航](https://www.google.com/maps/dir/?api=1&destination=${parking.latitude},${parking.longitude})\n`;
+    if (parking.isApproximate) {
+      // No exact coordinates — use name-based search
+      const searchQuery = encodeURIComponent(parking.name);
+      message += `[📍 導航](https://www.google.com/maps/search/?api=1&query=${searchQuery})\n`;
+    } else {
+      message += `[📍 導航](https://www.google.com/maps/dir/?api=1&destination=${parking.latitude},${parking.longitude})\n`;
+    }
 
     // 分隔線
     if (index < items.length - 1) {

@@ -36,6 +36,7 @@ interface ParkingAvailability {
   Address?: string;
   Description?: string;
   FareDescription?: string;
+  ServiceTime?: string;
 }
 
 export interface ParkingInfo {
@@ -50,6 +51,7 @@ export interface ParkingInfo {
   fareInfo: string;
   updateTime: string;
   parkingCategory?: 'offstreet' | 'onstreet'; // 路外停車場 vs 路邊停車格
+  isApproximate?: boolean; // true when position is not exact (fallback mode)
   
   // 特殊車位資訊
   heavyMotorcycleSpaces?: number;
@@ -147,14 +149,22 @@ export class TdxApiClient {
       }
 
       // Step 1: Get nearby parking lots (static data - OffStreet)
-      const nearbyLots = await this.getNearbyParkingLots(latitude, longitude, radius, token);
+      let nearbyLots = await this.getNearbyParkingLots(latitude, longitude, radius, token);
 
-      // Step 2: Get availability data using $filter with specific CarParkIDs
-      const carParkIds = nearbyLots.map(lot => lot.CarParkID).filter(Boolean);
-      const availability = await this.getParkingAvailability(city, token, carParkIds);
-
-      // Step 3: Merge OffStreet data
-      let offStreetResults = this.mergeParkingData(nearbyLots, availability, latitude, longitude);
+      // Step 2: Get availability data
+      let offStreetResults: ParkingInfo[];
+      
+      if (nearbyLots.length > 0) {
+        // Normal flow: NearBy found lots, get their availability
+        const carParkIds = nearbyLots.map(lot => lot.CarParkID).filter(Boolean);
+        const availability = await this.getParkingAvailability(city, token, carParkIds);
+        offStreetResults = this.mergeParkingData(nearbyLots, availability, latitude, longitude);
+      } else {
+        // Fallback: NearBy returned empty (e.g., Taipei)
+        // Use full city ParkingAvailability + reverse geocode for positions
+        console.log(`NearBy returned 0 for ${city}, using fallback strategy`);
+        offStreetResults = await this.fallbackParkingQuery(latitude, longitude, radius, city, token);
+      }
       
       // For motorcycle queries, filter OffStreet to only show those with motorcycle spaces
       if (vehicleType === 'motorcycle') {
@@ -163,7 +173,7 @@ export class TdxApiClient {
         );
       }
 
-      // Step 4: Get OnStreet (路邊停車) data
+      // Step 3: Get OnStreet (路邊停車) data
       let onStreetResults: ParkingInfo[] = [];
       try {
         onStreetResults = await this.queryOnStreetParking(latitude, longitude, radius, city, token, vehicleType);
@@ -179,6 +189,169 @@ export class TdxApiClient {
     } catch (error) {
       console.error('Error querying parking:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Fallback when NearBy API returns empty:
+   * 1. Reverse-geocode user location to get district name
+   * 2. Fetch full city ParkingAvailability
+   * 3. Filter by CarParkName containing district/area keyword
+   * 4. Return matches with approximate position (use district center)
+   */
+  private async fallbackParkingQuery(
+    latitude: number,
+    longitude: number,
+    radius: number,
+    city: string,
+    token: string
+  ): Promise<ParkingInfo[]> {
+    try {
+      // Step 1: Reverse geocode to get area/district name
+      const areaKeywords = await this.reverseGeocodeForArea(latitude, longitude);
+      console.log(`Fallback: area keywords = [${areaKeywords.join(', ')}]`);
+      
+      // Step 2: Fetch full city availability
+      const availability = await this.getParkingAvailability(city, token);
+      if (availability.length === 0) return [];
+      
+      console.log(`Fallback: ${availability.length} total availability records for ${city}`);
+      
+      // Step 3: Filter by area keywords in CarParkName or Address
+      let candidates: ParkingAvailability[] = [];
+      
+      // Try each keyword from most specific to broadest
+      for (const kw of areaKeywords) {
+        const matches = availability.filter(a => {
+          const name = a.CarParkName?.Zh_tw || '';
+          const addr = a.Address || '';
+          return name.includes(kw) || addr.includes(kw);
+        });
+        if (matches.length > 0) {
+          const existingIds = new Set(candidates.map(c => c.CarParkID));
+          for (const m of matches) {
+            if (!existingIds.has(m.CarParkID)) {
+              candidates.push(m);
+              existingIds.add(m.CarParkID);
+            }
+          }
+        }
+      }
+      
+      // If only a few matches, try broader district-level matching
+      if (candidates.length < 5) {
+        const districtKw = areaKeywords.find(kw => kw.endsWith('區') || kw.endsWith('里'));
+        if (districtKw) {
+          const districtBase = districtKw.replace(/(區|里)$/, '');
+          const broadMatches = availability.filter(a => {
+            const name = a.CarParkName?.Zh_tw || '';
+            return name.includes(districtBase) || name.includes(districtKw);
+          });
+          const existingIds = new Set(candidates.map(c => c.CarParkID));
+          for (const m of broadMatches) {
+            if (!existingIds.has(m.CarParkID) && candidates.length < 20) {
+              candidates.push(m);
+              existingIds.add(m.CarParkID);
+            }
+          }
+        }
+      }
+      
+      // If still too few, add top available spaces
+      if (candidates.length < 3) {
+        const remaining = availability
+          .filter(a => a.AvailableSpaces > 0 && !candidates.some(c => c.CarParkID === a.CarParkID))
+          .slice(0, 10);
+        candidates.push(...remaining);
+      }
+      
+      // Limit to 20 results
+      candidates = candidates.slice(0, 20);
+      console.log(`Fallback: ${candidates.length} candidates matched`);
+      
+      // Step 4: Build results - use user's position as approximate location
+      // (since we can't get exact coords, we use a small offset for sorting purposes)
+      const results: ParkingInfo[] = candidates.map((avail, index) => {
+        const name = avail.CarParkName?.Zh_tw || avail.CarParkID;
+        const fareDescription = avail.FareDescription || '';
+        const fareInfo = this.parseFareInfo(fareDescription);
+        const description = avail.Description || '';
+        const specialSpaces = this.parseSpecialSpaces(description);
+        
+        return {
+          id: avail.CarParkID,
+          name,
+          address: avail.Address || '',
+          // Use user's position as approximation (parking is "nearby" by name match)
+          latitude,
+          longitude,
+          distance: index * 50, // Approximate ordering by match relevance
+          totalSpaces: avail.TotalSpaces || 0,
+          availableSpaces: avail.AvailableSpaces ?? -1,
+          fareInfo: fareDescription || '收費資訊未提供',
+          updateTime: avail.UpdateTime || '',
+          parkingCategory: 'offstreet' as const,
+          isApproximate: true,
+          heavyMotorcycleSpaces: specialSpaces.heavyMotorcycle,
+          chargingSpaces: specialSpaces.charging,
+          handicapSpaces: specialSpaces.handicap,
+          womenChildrenSpaces: specialSpaces.womenChildren,
+          hourlyRate: fareInfo.hourlyRate,
+          monthlyRate: fareInfo.monthlyRate,
+          motorcycleMonthlyRate: fareInfo.motorcycleMonthlyRate,
+          description,
+          fareDescription,
+          serviceTime: avail.ServiceTime,
+        };
+      });
+      
+      console.log(`Fallback: returning ${results.length} parking lots`);
+      return results;
+    } catch (error) {
+      console.error('Fallback parking query failed:', error);
+      return [];
+    }
+  }
+
+  private async reverseGeocodeForArea(latitude: number, longitude: number): Promise<string[]> {
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&zoom=16&accept-language=zh-TW`;
+      const response = await fetch(url, {
+        headers: { 'User-Agent': 'TrafficBot/1.0' },
+      });
+      
+      if (!response.ok) return [];
+      
+      const data = await response.json();
+      const address = data.address || {};
+      
+      // Extract useful area keywords (from specific to broad)
+      const keywords: string[] = [];
+      
+      // Road name (most specific for parking lot matching)
+      if (address.road) {
+        keywords.push(address.road);
+        // Try base name without suffixes
+        const roadBase = address.road.replace(/(路|街|大道|段|巷|弄)$/g, '');
+        if (roadBase.length >= 2 && roadBase !== address.road) {
+          keywords.push(roadBase);
+        }
+      }
+      
+      // Neighbourhood / area
+      if (address.neighbourhood) keywords.push(address.neighbourhood);
+      
+      // District (區) - broader match
+      if (address.suburb) keywords.push(address.suburb);
+      if (address.city_district) keywords.push(address.city_district);
+      
+      // Known landmarks in the area
+      if (address.amenity) keywords.push(address.amenity);
+      
+      return keywords.filter(k => k && k.length >= 2);
+    } catch (error) {
+      console.error('Reverse geocode failed:', error);
+      return [];
     }
   }
 
