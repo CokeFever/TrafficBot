@@ -102,14 +102,23 @@ function formatParkingList(items: ParkingInfo[]): string {
     message += `${categoryIcon} ${parking.name}（${categoryLabel}）\n`;
     message += `距離：${formatDistance(parking.distance)}\n`;
 
-    // 車位
-    if (parking.totalSpaces > 0) {
-      const availableText = parking.availableSpaces >= 0
-        ? `${parking.availableSpaces} / ${parking.totalSpaces}`
-        : '未提供';
-      message += `車位：${availableText}\n`;
+    // 車位 — 路邊停車只在有即時資料時顯示
+    if (parking.parkingCategory === 'onstreet') {
+      // OnStreet: only show if we have real availability data
+      if (parking.availableSpaces >= 0 && parking.totalSpaces > 0) {
+        message += `車位：${parking.availableSpaces} / ${parking.totalSpaces}\n`;
+      }
+      // Otherwise skip (no meaning to show "未提供")
     } else {
-      message += `車位：未提供\n`;
+      // OffStreet: always show
+      if (parking.totalSpaces > 0) {
+        const availableText = parking.availableSpaces >= 0
+          ? `${parking.availableSpaces} / ${parking.totalSpaces}`
+          : '未提供';
+        message += `車位：${availableText}\n`;
+      } else {
+        message += `車位：未提供\n`;
+      }
     }
 
     // 特殊車位
