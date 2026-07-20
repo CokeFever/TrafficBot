@@ -49,6 +49,7 @@ export interface ParkingInfo {
   availableSpaces: number;
   fareInfo: string;
   updateTime: string;
+  parkingCategory?: 'offstreet' | 'onstreet'; // 路外停車場 vs 路邊停車格
   
   // 特殊車位資訊
   heavyMotorcycleSpaces?: number;
@@ -269,7 +270,7 @@ export class TdxApiClient {
       
       return {
         id: segment.ParkingSegmentID,
-        name: `🛣️ ${name}`,
+        name: `${name}`,
         address: `${roadName}${roadSection ? ` ${roadSection}` : ''}`,
         latitude: position.PositionLat,
         longitude: position.PositionLon,
@@ -278,6 +279,7 @@ export class TdxApiClient {
         availableSpaces: avail?.AvailableSpaces ?? -1,
         fareInfo: fareDescription || '收費資訊未提供',
         updateTime: avail?.UpdateTime || '',
+        parkingCategory: 'onstreet' as const,
         hourlyRate: fareInfo.hourlyRate,
         monthlyRate: fareInfo.monthlyRate,
         fareDescription,
@@ -440,6 +442,7 @@ export class TdxApiClient {
           description,
           fareDescription,
           serviceTime: lot.ServiceTime,
+          parkingCategory: 'offstreet' as const,
         };
       })
       .filter((p): p is NonNullable<typeof p> => p !== null) as ParkingInfo[];

@@ -16,10 +16,21 @@ export function formatParkingResults(results: ParkingInfo[], maxResults: number 
     limited = results.slice(0, maxResults);
   }
 
-  let message = `🅿️ 找到 ${results.length} 個停車場${selectionNote}\n\n`;
+  // Count by category
+  const offStreetCount = results.filter(r => r.parkingCategory !== 'onstreet').length;
+  const onStreetCount = results.filter(r => r.parkingCategory === 'onstreet').length;
+  let countDetail = '';
+  if (offStreetCount > 0 && onStreetCount > 0) {
+    countDetail = `（🅿️停車場 ${offStreetCount} + 🛣️路邊 ${onStreetCount}）`;
+  }
+
+  let message = `🅿️ 找到 ${results.length} 個停車位${countDetail}${selectionNote}\n\n`;
 
   limited.forEach((parking, index) => {
-    message += `📍 ${parking.name}\n`;
+    // 類型標示
+    const categoryIcon = parking.parkingCategory === 'onstreet' ? '🛣️' : '🅿️';
+    const categoryLabel = parking.parkingCategory === 'onstreet' ? '路邊' : '停車場';
+    message += `${categoryIcon} ${parking.name}（${categoryLabel}）\n`;
     message += `距離：${formatDistance(parking.distance)}\n`;
     
     // 車位

@@ -145,10 +145,21 @@ export class ParkingServiceImpl implements ParkingService {
       return '❌ 附近沒有找到停車場';
     }
 
-    const lines = [`🅿️ 找到 ${facilities.length} 個停車場\n`];
+    // Count by category
+    const offStreetCount = facilities.filter(f => f.type !== 'street_parking').length;
+    const onStreetCount = facilities.filter(f => f.type === 'street_parking').length;
+    let countDetail = '';
+    if (offStreetCount > 0 && onStreetCount > 0) {
+      countDetail = `（🅿️停車場 ${offStreetCount} + 🛣️路邊 ${onStreetCount}）`;
+    }
+
+    const lines = [`🅿️ 找到 ${facilities.length} 個停車位${countDetail}\n`];
 
     facilities.slice(0, 10).forEach((facility, index) => {
-      lines.push(`📍 ${facility.name}`);
+      // 類型標示
+      const categoryIcon = facility.type === 'street_parking' ? '🛣️' : '🅿️';
+      const categoryLabel = facility.type === 'street_parking' ? '路邊' : '停車場';
+      lines.push(`${categoryIcon} ${facility.name}（${categoryLabel}）`);
       
       // 距離
       lines.push(`距離：${facility.distance}m`);
@@ -211,11 +222,6 @@ export class ParkingServiceImpl implements ParkingService {
       // 營業時間
       if (facility.serviceTime) {
         lines.push(`🕐 ${facility.serviceTime}`);
-      }
-      
-      // 類型標示
-      if (facility.type === 'street_parking') {
-        lines.push('📌 路邊停車');
       }
       
       // 導航連結
