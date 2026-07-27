@@ -110,45 +110,74 @@ curl -X GET "https://tdx.transportdata.tw/api/basic/v2/Parking/OffStreet/Parking
 
 ## 常用 API Endpoints
 
-本 Bot 使用以下 TDX API：
+本 Bot 使用以下資料來源：
 
-### 1. 停車場即時資訊
-
-```
-GET /v2/Parking/OffStreet/ParkingAvailability/City/{City}
-```
-
-**參數**：
-- `City`: 城市名稱（如 Taipei, NewTaipei）
-- `$spatialFilter`: 空間過濾（nearby 函數）
-- `$format`: 回應格式（JSON）
-
-**範例**：
-```
-https://tdx.transportdata.tw/api/basic/v2/Parking/OffStreet/ParkingAvailability/City/Taipei?$spatialFilter=nearby(25.0330,121.5654,1000)&$format=JSON
-```
-
-### 2. 即時車流資訊
+### 1. TDX - 停車場附近搜尋（進階服務）
 
 ```
-GET /v2/Traffic/Live/City/{City}
+GET /api/advanced/v1/Parking/OffStreet/CarPark/NearBy
 ```
 
 **參數**：
-- `City`: 城市名稱
-- `$filter`: OData 過濾條件
-- `$format`: 回應格式
+- `$spatialFilter`: `nearby(緯度, 經度, 半徑公尺)`（最大 1000m）
+- `$format`: JSON
 
-### 3. 交通事故資訊
+**適用城市**：桃園、台中、台南、高雄等（台北市資料不完整，改用 TCMSV）
+
+### 2. TDX - 即時停車位
 
 ```
-GET /v2/Traffic/Live/Incident/City/{City}
+GET /api/basic/v1/Parking/OffStreet/ParkingAvailability/City/{City}
 ```
 
-**參數**：
-- `City`: 城市名稱
-- `$filter`: OData 過濾條件
-- `$format`: 回應格式
+**支援城市**：Taipei, Taoyuan, Taichung, Tainan, Kaohsiung, Keelung, Hsinchu 等 22 縣市
+
+### 3. TDX - 路邊停車格
+
+```
+GET /api/basic/v1/Parking/OnStreet/ParkingSegment/City/{City}
+GET /api/basic/v1/Parking/OnStreet/ParkingSegmentAvailability/City/{City}
+```
+
+### 4. 台北市 TCMSV Open Data（台北市專用）
+
+| API | 說明 | 更新頻率 |
+|-----|------|----------|
+| `https://tcgbusfs.blob.core.windows.net/blobtcmsv/TCMSV_alldesc.json` | 停車場靜態資料（含 TWD97 座標） | 不定期 |
+| `https://tcgbusfs.blob.core.windows.net/blobtcmsv/TCMSV_allavailable.json` | 即時剩餘車位 | 每分鐘 |
+
+**回傳格式**：
+```json
+{
+  "data": {
+    "UPDATETIME": "Mon Jul 27 10:54:00 CST 2026",
+    "park": [
+      {
+        "id": "139",
+        "area": "士林區",
+        "name": "捷運芝山站停車場(北側)",
+        "address": "台北市士林區福國路70號",
+        "tw97x": "302730.752",
+        "tw97y": "2777139.53",
+        "totalcar": 30,
+        "totalmotor": 0,
+        "payex": "小型車全日月租：4,000元/月..."
+      }
+    ]
+  }
+}
+```
+
+**座標系統**：TWD97 TM2 (EPSG:3826)，需轉換為 WGS84 才能計算距離。
+
+### 5. TDX - 路況（CMS + VD）
+
+```
+GET /api/advanced/v2/Road/Traffic/CMS/NearBy
+GET /api/basic/v2/Road/Traffic/Live/CMS/City/{City}
+GET /api/advanced/v2/Road/Traffic/VD/NearBy
+GET /api/basic/v2/Road/Traffic/Live/VD/City/{City}
+```
 
 ---
 

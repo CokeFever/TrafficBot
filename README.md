@@ -1,29 +1,43 @@
-# 🚗 TrafficBot - 台灣停車與路況查詢 Telegram Bot
+# 🚗 泊車小弟 TrafficBot - 台灣停車與路況查詢 Bot
 
-一個整合台灣交通部 TDX API 的 Telegram Bot，提供即時停車位查詢與路況資訊。
+整合 TDX 運輸資料流通服務與台北市 TCMSV 開放資料的聊天機器人，提供即時停車位查詢與路況資訊。支援 Telegram 與 LINE。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Deploy to Supabase](https://github.com/CokeFever/trafficbot/actions/workflows/deploy-supabase.yml/badge.svg)](https://github.com/CokeFever/trafficbot/actions/workflows/deploy-supabase.yml)
-[![GitHub issues](https://img.shields.io/github/issues/CokeFever/trafficbot)](https://github.com/CokeFever/trafficbot/issues)
-[![GitHub stars](https://img.shields.io/github/stars/CokeFever/trafficbot)](https://github.com/CokeFever/trafficbot/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/CokeFever/trafficbot)](https://github.com/CokeFever/trafficbot/network)
+
+**LINE**: https://line.me/R/ti/p/@292epgxq
+**Telegram**: https://t.me/ixoTraffic_Bot
 
 ## ✨ 功能特色
 
 ### 🅿️ 停車位查詢
-- 搜尋附近停車場（250m / 500m / 1km 範圍）
-- 顯示即時剩餘車位數
-- 提供收費資訊與距離
-- 支援機車停車位查詢
-- 試用模式：每人每天免費查詢 2 次
+- 搜尋附近停車場 + 路邊停車格（250m / 500m / 1km）
+- 即時剩餘車位數、收費資訊、營業時間
+- 支援車種選擇：🚗 小客車 / 🏍️ 機車 / 全部
+- 路外停車場（OffStreet）與路邊停車格（OnStreet）分開顯示
+- 智慧篩選：停車場 3 筆（最近、空位最多、最便宜）+ 路邊 2 筆（最近、最便宜）
+- 分頁瀏覽：輸入「更多」查看完整列表（每頁 5 筆）
+- 精確距離與 Google Maps 導航連結
+- 試用模式：每人每天免費查詢 5 次
 
 ### 🚦 路況查詢
-- 查詢附近路況（250m / 500m / 1km 範圍）
+- 查詢附近路況（250m / 500m / 1km）
 - 整合 CMS（交通訊息看板）與 VD（車輛偵測器）資料
-- 智慧過濾：僅顯示異常路況（速度偏離 ±10% 以上）
-- 嚴重度排序：事故 > 壅塞 > 施工 > 車多 > 緩慢
-- 道路分組顯示，避免資訊過載
+- 智慧過濾：僅顯示異常路況
+- 嚴重度排序：事故 > 壅塞 > 施工 > 車多
 - 需要設定 TDX API Key
+
+### 🌍 支援範圍
+- **全台 22 縣市**（含離島）
+- 台北市：使用 TCMSV 開放資料（含精確座標、即時車位）
+- 其他城市：使用 TDX Advanced NearBy API + ParkingAvailability
+
+## 📱 支援平台
+
+| 平台 | 連結 | 功能 |
+|------|------|------|
+| Telegram | [@ixoTraffic_Bot](https://t.me/ixoTraffic_Bot) | 完整功能 |
+| LINE | [@292epgxq](https://line.me/R/ti/p/@292epgxq) | 完整功能 |
 
 ## 🚀 快速開始
 
@@ -31,131 +45,104 @@
 
 - Node.js 20+
 - Supabase 帳號
-- Telegram Bot Token（從 [@BotFather](https://t.me/botfather) 取得）
-- TDX API Key（從 [TDX 平台](https://tdx.transportdata.tw/) 申請）
+- Telegram Bot Token / LINE Channel
+- TDX API Key（[申請連結](https://tdx.transportdata.tw/)）
 
 ### 安裝步驟
 
-1. Clone 專案
 ```bash
 git clone https://github.com/CokeFever/trafficbot.git
 cd trafficbot
-```
-
-2. 安裝相依套件
-```bash
 npm install
-```
-
-3. 設定環境變數
-```bash
 cp .env.example .env
-# 編輯 .env 填入你的設定
+# 編輯 .env 填入設定
 ```
 
-4. 設定 Supabase
+### 部署
+
 ```bash
-# 安裝 Supabase CLI
-npm install -g supabase
-
-# 登入 Supabase
-supabase login
-
-# 連結專案
 supabase link --project-ref your-project-ref
-
-# 推送資料庫 migrations
 supabase db push
-
-# 部署 Edge Functions
 supabase functions deploy telegram-webhook --no-verify-jwt
+supabase functions deploy line-webhook --no-verify-jwt
+supabase functions deploy daily-report --no-verify-jwt
 ```
 
-5. 設定 Telegram Webhook
-```bash
-npm run setup-webhook
-```
-
-## 📖 使用說明
-
-### Bot 指令
-
-- `/start` - 開始使用
-- `/help` - 查看說明
-- `/parking` - 搜尋附近停車位
-- `/traffic` - 查詢附近路況
-- `/setup` - 設定 TDX API Key
-- `/config` - 查看當前配置
-- `/reset` - 重置配置
-
-### 使用流程
-
-#### 停車位查詢
-1. 輸入 `/parking`
-2. 選擇搜尋範圍（250m / 500m / 1km）
-3. 分享你的位置
-4. 查看附近停車場資訊
-
-#### 路況查詢
-1. 輸入 `/setup` 設定 TDX API Key（首次使用）
-2. 輸入 `/traffic`
-3. 選擇搜尋範圍（250m / 500m / 1km）
-4. 分享你的位置
-5. 查看附近路況資訊
+推送到 `main` branch 會透過 GitHub Actions 自動部署。
 
 ## 🏗️ 架構說明
+
+### 資料來源
+
+| 資料 | 來源 | 說明 |
+|------|------|------|
+| 路外停車場（多數城市） | TDX Advanced NearBy API | 含座標、收費、特殊車位 |
+| 路外停車場（台北市） | 台北市 TCMSV Open Data | 含 TWD97 座標、即時車位 |
+| 路邊停車格 | TDX Basic OnStreet API | ParkingSegment + Availability |
+| 即時車位 | TDX ParkingAvailability | 即時剩餘車位數 |
+| 路況 | TDX CMS + VD API | 交通訊息看板 + 車輛偵測器 |
 
 ### 技術棧
 
 - **Runtime**: Deno (Supabase Edge Functions)
-- **Database**: PostgreSQL (Supabase)
-- **Bot Framework**: Telegraf
-- **API**: TDX (Transport Data eXchange)
-- **Deployment**: GitHub Actions + Supabase
+- **Database**: PostgreSQL (Supabase) with RLS
+- **Messaging**: Telegram Bot API / LINE Messaging API
+- **API**: TDX + Taipei TCMSV + Nominatim (geocoding)
+- **Deployment**: GitHub Actions → Supabase
+- **Coordinate System**: TWD97 TM2 → WGS84 conversion
 
 ### 專案結構
 
 ```
 trafficbot/
-├── src/
-│   ├── handlers/          # Bot 指令處理器
-│   ├── services/          # 業務邏輯服務
-│   ├── models/            # 資料模型
-│   └── utils/             # 工具函式
+├── src/                        # Node.js 本地開發版本
+│   ├── handlers/               # Bot 指令處理器
+│   ├── integrations/           # TDX API 客戶端
+│   ├── services/               # 業務邏輯（停車、路況、快取）
+│   ├── models/                 # 資料模型與轉換
+│   └── utils/                  # 工具函式（座標解析等）
 ├── supabase/
-│   ├── functions/         # Edge Functions
-│   │   ├── telegram-webhook/  # Telegram webhook 處理
-│   │   └── _shared/       # 共用模組
-│   └── migrations/        # 資料庫 migrations
-├── docs/                  # 文件
-├── scripts/               # 工具腳本
-└── .github/workflows/     # CI/CD 配置
+│   ├── functions/              # Edge Functions (Production)
+│   │   ├── telegram-webhook/   # Telegram webhook
+│   │   ├── line-webhook/       # LINE webhook
+│   │   ├── daily-report/       # 每日報表
+│   │   └── _shared/            # 共用模組（TDX client, formatters）
+│   └── migrations/             # 資料庫 schema
+├── scripts/                    # 工具腳本
+├── docs/                       # 文件
+└── .github/workflows/          # CI/CD
 ```
 
 ## 🔒 安全性
 
-- 使用 Row Level Security (RLS) 保護資料庫
-- TDX API Key 加密儲存
+- Row Level Security (RLS) 保護所有資料表
+- TDX API Key 使用 AES-256-CBC 加密儲存（含自動遷移機制）
 - 環境變數管理敏感資訊
-- 詳見 [SECURITY.md](SECURITY.md)
+- LINE webhook 簽名驗證 (HMAC-SHA256)
+- Production 依賴零漏洞
 
-## 🤝 貢獻指南
+## 📖 文件
+
+- [快速開始](docs/quick-start.md)
+- [使用者手冊](docs/user-guide.md)
+- [TDX API 申請指南](docs/tdx-api-guide.md)
+- [Supabase 部署指南](docs/deploy-supabase.md)
+- [GitHub Actions 設定](docs/github-actions-setup.md)
+
+## 🤝 貢獻
 
 歡迎貢獻！請參考 [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## 📄 授權
 
-本專案採用 MIT 授權 - 詳見 [LICENSE](LICENSE) 檔案
+MIT License - 詳見 [LICENSE](LICENSE)
 
 ## 🙏 致謝
 
 - [TDX 運輸資料流通服務平台](https://tdx.transportdata.tw/)
+- [台北市政府資料開放平台 (Data.Taipei)](https://data.taipei/)
 - [Supabase](https://supabase.com/)
-- [Telegraf](https://telegraf.js.org/)
-
-## 📞 聯絡方式
-
-如有問題或建議，請開 [Issue](https://github.com/CokeFever/trafficbot/issues)
+- [Nominatim / OpenStreetMap](https://nominatim.openstreetmap.org/)
 
 ---
 
