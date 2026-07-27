@@ -194,10 +194,8 @@ export class TdxApiClient {
 
   /**
    * Fallback when NearBy API returns empty:
-   * 1. Reverse-geocode user location to get district name
-   * 2. Fetch full city ParkingAvailability
-   * 3. Filter by CarParkName containing district/area keyword
-   * 4. Return matches with approximate position (use district center)
+   * For Taipei: use TCMSV open data (has real coordinates)
+   * For other cities: use reverse geocode + name matching fallback
    */
   private async fallbackParkingQuery(
     latitude: number,
@@ -206,21 +204,189 @@ export class TdxApiClient {
     city: string,
     token: string
   ): Promise<ParkingInfo[]> {
+    // Taipei has dedicated TCMSV API with real coordinates
+    if (city === 'Taipei') {
+      return this.queryTaipeiTCMSV(latitude, longitude, radius);
+    }
+    
+    // Other cities: use reverse geocode + TDX availability name matching
+    return this.fallbackNameMatching(latitude, longitude, radius, city, token);
+  }
+
+  /**
+   * Taipei-specific: use TCMSV blob APIs
+   * - TCMSV_alldesc.json: static data with TWD97 coordinates
+   * - TCMSV_allavailable.json: real-time availability
+   */
+  private async queryTaipeiTCMSV(
+    latitude: number,
+    longitude: number,
+    radius: number
+  ): Promise<ParkingInfo[]> {
     try {
-      // Step 1: Reverse geocode to get area/district name
+      console.log('Using Taipei TCMSV API for parking data');
+      
+      // Fetch static parking lot data (with coordinates)
+      const descResp = await fetch('https://tcgbusfs.blob.core.windows.net/blobtcmsv/TCMSV_alldesc.json');
+      if (!descResp.ok) {
+        console.error(`TCMSV desc failed: ${descResp.status}`);
+        return [];
+      }
+      const descData = await descResp.json();
+      const allParks = descData?.data?.park || [];
+      console.log(`TCMSV: ${allParks.length} total parking lots`);
+      
+      // Filter by distance using TWD97 → WGS84 conversion
+      const nearbyParks = allParks
+        .map((park: any) => {
+          const tw97x = parseFloat(park.tw97x);
+          const tw97y = parseFloat(park.tw97y);
+          if (isNaN(tw97x) || isNaN(tw97y) || tw97x === 0 || tw97y === 0) return null;
+          
+          // TWD97 TM2 → WGS84 conversion
+          const wgs84 = this.twd97ToWgs84(tw97x, tw97y);
+          const distance = this.calculateDistance(latitude, longitude, wgs84.lat, wgs84.lon);
+          
+          if (distance > radius) return null;
+          
+          return { ...park, wgs84Lat: wgs84.lat, wgs84Lon: wgs84.lon, distance };
+        })
+        .filter((p: any) => p !== null)
+        .sort((a: any, b: any) => a.distance - b.distance);
+      
+      console.log(`TCMSV: ${nearbyParks.length} parks within ${radius}m`);
+      
+      if (nearbyParks.length === 0) return [];
+      
+      // Fetch real-time availability
+      let availMap = new Map<string, any>();
+      try {
+        const availResp = await fetch('https://tcgbusfs.blob.core.windows.net/blobtcmsv/TCMSV_allavailable.json');
+        if (availResp.ok) {
+          const availData = await availResp.json();
+          const availParks = availData?.data?.park || [];
+          availParks.forEach((a: any) => availMap.set(a.id, a));
+          console.log(`TCMSV: ${availMap.size} availability records`);
+        }
+      } catch (e) {
+        console.warn('TCMSV availability fetch failed, continuing without real-time data');
+      }
+      
+      // Build results
+      const results: ParkingInfo[] = nearbyParks.slice(0, 20).map((park: any) => {
+        // Try to match availability by ID (format differs: desc uses "139", avail uses "TPE0001")
+        const availById = availMap.get(park.id) || availMap.get(`TPE${park.id.padStart(4, '0')}`);
+        
+        const availableCar = availById?.availablecar ?? -9;
+        const fareDescription = park.payex || '';
+        const fareInfo = this.parseFareInfo(fareDescription);
+        
+        return {
+          id: park.id,
+          name: park.name || '',
+          address: park.address || '',
+          latitude: park.wgs84Lat,
+          longitude: park.wgs84Lon,
+          distance: Math.round(park.distance),
+          totalSpaces: park.totalcar || 0,
+          availableSpaces: availableCar >= 0 ? availableCar : -1,
+          fareInfo: fareDescription || '收費資訊未提供',
+          updateTime: '',
+          parkingCategory: 'offstreet' as const,
+          isApproximate: false,
+          heavyMotorcycleSpaces: undefined,
+          chargingSpaces: undefined,
+          handicapSpaces: availById?.availablehandicap >= 0 ? availById.availablehandicap : undefined,
+          womenChildrenSpaces: availById?.availablepregnancy >= 0 ? availById.availablepregnancy : undefined,
+          hourlyRate: fareInfo.hourlyRate,
+          monthlyRate: fareInfo.monthlyRate,
+          motorcycleMonthlyRate: fareInfo.motorcycleMonthlyRate,
+          fareDescription,
+        } as ParkingInfo;
+      });
+      
+      return results;
+    } catch (error) {
+      console.error('TCMSV query failed:', error);
+      return [];
+    }
+  }
+
+  /**
+   * TWD97 TM2 (EPSG:3826) → WGS84 coordinate conversion
+   * Approximate conversion using simplified formulas
+   */
+  private twd97ToWgs84(x: number, y: number): { lat: number; lon: number } {
+    // TWD97 TM2 parameters
+    const a = 6378137.0; // semi-major axis
+    const f = 1 / 298.257222101; // flattening
+    const lng0 = 121.0 * Math.PI / 180; // central meridian (121°E)
+    const k0 = 0.9999; // scale factor
+    const dx = 250000; // false easting
+    const dy = 0; // false northing
+    
+    const e = Math.sqrt(2 * f - f * f);
+    const e2 = e * e / (1 - e * e);
+    
+    const nx = x - dx;
+    const ny = y - dy;
+    
+    const M = ny / k0;
+    const mu = M / (a * (1 - e * e / 4 - 3 * e * e * e * e / 64 - 5 * e * e * e * e * e * e / 256));
+    
+    const e1 = (1 - Math.sqrt(1 - e * e)) / (1 + Math.sqrt(1 - e * e));
+    
+    const J1 = 3 * e1 / 2 - 27 * e1 * e1 * e1 / 32;
+    const J2 = 21 * e1 * e1 / 16 - 55 * e1 * e1 * e1 * e1 / 32;
+    const J3 = 151 * e1 * e1 * e1 / 96;
+    const J4 = 1097 * e1 * e1 * e1 * e1 / 512;
+    
+    const fp = mu + J1 * Math.sin(2 * mu) + J2 * Math.sin(4 * mu) + J3 * Math.sin(6 * mu) + J4 * Math.sin(8 * mu);
+    
+    const C1 = e2 * Math.cos(fp) * Math.cos(fp);
+    const T1 = Math.tan(fp) * Math.tan(fp);
+    const R1 = a * (1 - e * e) / Math.pow(1 - e * e * Math.sin(fp) * Math.sin(fp), 1.5);
+    const N1 = a / Math.sqrt(1 - e * e * Math.sin(fp) * Math.sin(fp));
+    const D = nx / (N1 * k0);
+    
+    const Q1 = N1 * Math.tan(fp) / R1;
+    const Q2 = D * D / 2;
+    const Q3 = (5 + 3 * T1 + 10 * C1 - 4 * C1 * C1 - 9 * e2) * D * D * D * D / 24;
+    const Q4 = (61 + 90 * T1 + 298 * C1 + 45 * T1 * T1 - 3 * C1 * C1 - 252 * e2) * D * D * D * D * D * D / 720;
+    
+    const lat = fp - Q1 * (Q2 - Q3 + Q4);
+    
+    const Q5 = D;
+    const Q6 = (1 + 2 * T1 + C1) * D * D * D / 6;
+    const Q7 = (5 - 2 * C1 + 28 * T1 - 3 * C1 * C1 + 8 * e2 + 24 * T1 * T1) * D * D * D * D * D / 120;
+    
+    const lon = lng0 + (Q5 - Q6 + Q7) / Math.cos(fp);
+    
+    return {
+      lat: lat * 180 / Math.PI,
+      lon: lon * 180 / Math.PI,
+    };
+  }
+
+  /**
+   * Fallback for non-Taipei cities: reverse geocode + name matching
+   */
+  private async fallbackNameMatching(
+    latitude: number,
+    longitude: number,
+    radius: number,
+    city: string,
+    token: string
+  ): Promise<ParkingInfo[]> {
+    try {
       const areaKeywords = await this.reverseGeocodeForArea(latitude, longitude);
       console.log(`Fallback: area keywords = [${areaKeywords.join(', ')}]`);
       
-      // Step 2: Fetch full city availability
       const availability = await this.getParkingAvailability(city, token);
       if (availability.length === 0) return [];
       
-      console.log(`Fallback: ${availability.length} total availability records for ${city}`);
-      
-      // Step 3: Filter by area keywords in CarParkName or Address
       let candidates: ParkingAvailability[] = [];
       
-      // Try each keyword from most specific to broadest
       for (const kw of areaKeywords) {
         const matches = availability.filter(a => {
           const name = a.CarParkName?.Zh_tw || '';
@@ -238,7 +404,6 @@ export class TdxApiClient {
         }
       }
       
-      // Only use district-level matching if NO specific matches found at all
       if (candidates.length === 0) {
         const districtKw = areaKeywords.find(kw => kw.endsWith('區') || kw.endsWith('里'));
         if (districtKw) {
@@ -254,53 +419,33 @@ export class TdxApiClient {
         }
       }
       
-      // Do NOT add random unrelated parking lots — better to show fewer correct results
-      // than many incorrect ones
-      
-      // Limit to 10 results
       candidates = candidates.slice(0, 10);
-      console.log(`Fallback: ${candidates.length} candidates matched`);
       
-      // Step 4: Build results - use user's position as approximate location
-      // (since we can't get exact coords, we use a small offset for sorting purposes)
-      const results: ParkingInfo[] = candidates.map((avail, index) => {
+      return candidates.map((avail, index) => {
         const name = avail.CarParkName?.Zh_tw || avail.CarParkID;
         const fareDescription = avail.FareDescription || '';
         const fareInfo = this.parseFareInfo(fareDescription);
-        const description = avail.Description || '';
-        const specialSpaces = this.parseSpecialSpaces(description);
         
         return {
           id: avail.CarParkID,
           name,
           address: avail.Address || '',
-          // Use user's position as approximation (parking is "nearby" by name match)
           latitude,
           longitude,
-          distance: index * 50, // Approximate ordering by match relevance
+          distance: index * 50,
           totalSpaces: avail.TotalSpaces || 0,
           availableSpaces: avail.AvailableSpaces ?? -1,
           fareInfo: fareDescription || '收費資訊未提供',
           updateTime: avail.UpdateTime || '',
           parkingCategory: 'offstreet' as const,
           isApproximate: true,
-          heavyMotorcycleSpaces: specialSpaces.heavyMotorcycle,
-          chargingSpaces: specialSpaces.charging,
-          handicapSpaces: specialSpaces.handicap,
-          womenChildrenSpaces: specialSpaces.womenChildren,
           hourlyRate: fareInfo.hourlyRate,
           monthlyRate: fareInfo.monthlyRate,
-          motorcycleMonthlyRate: fareInfo.motorcycleMonthlyRate,
-          description,
           fareDescription,
-          serviceTime: avail.ServiceTime,
-        };
+        } as ParkingInfo;
       });
-      
-      console.log(`Fallback: returning ${results.length} parking lots`);
-      return results;
     } catch (error) {
-      console.error('Fallback parking query failed:', error);
+      console.error('Fallback name matching failed:', error);
       return [];
     }
   }
