@@ -238,8 +238,8 @@ export class TdxApiClient {
         }
       }
       
-      // If only a few matches, try broader district-level matching
-      if (candidates.length < 5) {
+      // Only use district-level matching if NO specific matches found at all
+      if (candidates.length === 0) {
         const districtKw = areaKeywords.find(kw => kw.endsWith('區') || kw.endsWith('里'));
         if (districtKw) {
           const districtBase = districtKw.replace(/(區|里)$/, '');
@@ -247,26 +247,18 @@ export class TdxApiClient {
             const name = a.CarParkName?.Zh_tw || '';
             return name.includes(districtBase) || name.includes(districtKw);
           });
-          const existingIds = new Set(candidates.map(c => c.CarParkID));
           for (const m of broadMatches) {
-            if (!existingIds.has(m.CarParkID) && candidates.length < 20) {
-              candidates.push(m);
-              existingIds.add(m.CarParkID);
-            }
+            candidates.push(m);
+            if (candidates.length >= 10) break;
           }
         }
       }
       
-      // If still too few, add top available spaces
-      if (candidates.length < 3) {
-        const remaining = availability
-          .filter(a => a.AvailableSpaces > 0 && !candidates.some(c => c.CarParkID === a.CarParkID))
-          .slice(0, 10);
-        candidates.push(...remaining);
-      }
+      // Do NOT add random unrelated parking lots — better to show fewer correct results
+      // than many incorrect ones
       
-      // Limit to 20 results
-      candidates = candidates.slice(0, 20);
+      // Limit to 10 results
+      candidates = candidates.slice(0, 10);
       console.log(`Fallback: ${candidates.length} candidates matched`);
       
       // Step 4: Build results - use user's position as approximate location
