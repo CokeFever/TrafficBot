@@ -144,11 +144,57 @@ mcpApp.all('/mcp', async (c) => {
     }
   }
 
+  // Log what the client sends so we can see method, Accept, and session id.
+  const clientAccept = c.req.header('Accept') || '';
+  const clientSession = c.req.header('Mcp-Session-Id') || '';
+  let rpcMethod = '';
   if (c.req.method === 'POST') {
-    console.log('[mcp] POST /mcp authorized -> handling JSON-RPC');
+    try {
+      const peek = await c.req.raw.clone().json();
+      rpcMethod = peek?.method || '';
+    } catch {
+      // ignore
+    }
   }
+  console.log(
+    `[mcp] IN ${c.req.method} rpc=${rpcMethod || '-'} accept="${clientAccept}" session="${clientSession || '-'}"`
+  );
+
   const response = await mcpHttpHandler(c.req.raw);
-  console.log(`[mcp] ${c.req.method} /mcp -> status ${response.status}, content-type=${response.headers.get('content-type')}`);
+  console.log(
+    `[mcp] OUT ${c.req.method} rpc=${rpcMethod || '-'} -> status ${response.status} ctype=${response.headers.get('content-type')} session-out=${response.headers.get('mcp-session-id') || '-'}`
+  );
+
+  // Compatibility shim for Gemini's MCP client.
+  //
+  // mcp-lite always answers the `initialize` request with a plain
+  // application/json body (this is spec-legal). Gemini, however, advertises
+  // `Accept: application/json, text/event-stream` and then abandons the
+  // connection (immediately sending DELETE) when initialize comes back as
+  // JSON — it expects the response as a Server-Sent Events stream, the same
+  // way every other method is delivered.
+  //
+  // So: when the client accepts SSE and mcp-lite handed us a JSON initialize
+  // response, re-wrap that JSON-RPC payload as a single SSE event. All headers
+  // (notably Mcp-Session-Id) are preserved; only the framing changes.
+  const respCtype = response.headers.get('content-type') || '';
+  if (
+    rpcMethod === 'initialize' &&
+    response.status === 200 &&
+    respCtype.includes('application/json') &&
+    clientAccept.includes('text/event-stream')
+  ) {
+    const jsonBody = await response.text();
+    const sseBody = `event: message\ndata: ${jsonBody}\n\n`;
+    const headers = new Headers(response.headers);
+    headers.set('Content-Type', 'text/event-stream');
+    headers.delete('Content-Length');
+    headers.set('Cache-Control', 'no-cache');
+    headers.set('Connection', 'keep-alive');
+    console.log('[mcp] initialize re-wrapped as SSE for Gemini compatibility');
+    return new Response(sseBody, { status: 200, headers });
+  }
+
   return response;
 });
 
