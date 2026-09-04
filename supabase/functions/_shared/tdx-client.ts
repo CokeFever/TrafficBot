@@ -568,9 +568,14 @@ export class TdxApiClient {
       
       if (distance > radius) return null;
       
-      const segmentName = segment.ParkingSegmentName?.Zh_tw || '';
-      const roadName = segment.RoadName || '';
-      const roadSection = segment.RoadSection || '';
+      // TDX returns these as multilingual objects ({ Zh_tw, En }) or plain
+      // strings depending on the dataset. Normalize to a string so they don't
+      // stringify to "[object Object]".
+      const toText = (v: any): string =>
+        typeof v === 'string' ? v : v?.Zh_tw || v?.En || '';
+      const segmentName = toText(segment.ParkingSegmentName);
+      const roadName = toText(segment.RoadName);
+      const roadSection = toText(segment.RoadSection);
       const name = segmentName || `${roadName}${roadSection ? ` (${roadSection})` : ''}` || segment.ParkingSegmentID;
       
       const fareDescription = typeof segment.FareDescription === 'string' 
@@ -581,7 +586,7 @@ export class TdxApiClient {
       return {
         id: segment.ParkingSegmentID,
         name: `${name}`,
-        address: `${roadName}${roadSection ? ` ${roadSection}` : ''}`,
+        address: `${roadName}${roadSection ? ` ${roadSection}` : ''}`.trim() || name,
         latitude: position.PositionLat,
         longitude: position.PositionLon,
         distance: Math.round(distance),

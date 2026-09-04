@@ -158,26 +158,16 @@ mcpApp.all('/mcp', async (c) => {
     }
   }
 
-  // Log what the client sends so we can see method, Accept, and session id.
   const clientAccept = c.req.header('Accept') || '';
-  const clientSession = c.req.header('Mcp-Session-Id') || '';
   let rpcMethod = '';
   if (c.req.method === 'POST') {
     try {
-      const rawBody = await c.req.raw.clone().text();
-      const peek = JSON.parse(rawBody);
+      const peek = await c.req.raw.clone().json();
       rpcMethod = peek?.method || '';
-      // Full request body so we can see the client's protocolVersion +
-      // capabilities during initialize.
-      console.log(`[mcp] IN-BODY ${rpcMethod}: ${rawBody.slice(0, 800)}`);
     } catch {
       // ignore
     }
   }
-  const protoHeader = c.req.header('MCP-Protocol-Version') || '';
-  console.log(
-    `[mcp] IN ${c.req.method} rpc=${rpcMethod || '-'} accept="${clientAccept}" session="${clientSession || '-'}" proto-hdr="${protoHeader}"`
-  );
 
   // Protocol-version negotiation shim.
   //
@@ -211,17 +201,6 @@ mcpApp.all('/mcp', async (c) => {
   }
 
   const response = await mcpHttpHandler(reqForHandler);
-  // Dump the response body + headers for initialize to compare against what
-  // Gemini expects. clone() so we don't consume the stream we return.
-  if (rpcMethod === 'initialize') {
-    const outHeaders: Record<string, string> = {};
-    response.headers.forEach((v, k) => (outHeaders[k] = v));
-    const outBody = await response.clone().text();
-    console.log(`[mcp] OUT-INIT headers=${JSON.stringify(outHeaders)} body=${outBody.slice(0, 800)}`);
-  }
-  console.log(
-    `[mcp] OUT ${c.req.method} rpc=${rpcMethod || '-'} -> status ${response.status} ctype=${response.headers.get('content-type')} session-out=${response.headers.get('mcp-session-id') || '-'}`
-  );
 
   // Compatibility shim for Gemini's MCP client.
   //
