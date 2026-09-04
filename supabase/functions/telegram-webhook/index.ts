@@ -114,6 +114,11 @@ async function handleCommand(
 
   switch (command) {
     case 'start':
+      // MCP OAuth binding: /start mcpauth_<nonce>
+      if (args.length > 0 && args[0].startsWith('mcpauth_')) {
+        await handleMcpAuthBinding(args[0].slice('mcpauth_'.length), chatId, userId, supabase, botToken);
+        break;
+      }
       await sendMessage(chatId, getWelcomeMessage(), botToken);
       break;
     case 'help':
@@ -254,6 +259,71 @@ async function handleResetCommand(
       inline_keyboard: [[{ text: '確認重置', callback_data: 'reset:confirm' }]],
     },
   });
+}
+
+// MCP OAuth binding: link Gemini Spark to this Telegram user.
+// Requires the user to have already configured their TDX API key.
+async function handleMcpAuthBinding(
+  nonce: string,
+  chatId: number,
+  userId: string,
+  supabase: any,
+  botToken: string
+) {
+  try {
+    // Look up the pending nonce
+    const { data: nonceRow } = await supabase
+      .from('mcp_oauth_nonces')
+      .select('*')
+      .eq('nonce', nonce)
+      .single();
+
+    if (!nonceRow) {
+      await sendMessage(chatId, '❌ 連結已失效或不存在，請在 Gemini 重新發起連結', botToken);
+      return;
+    }
+
+    if (new Date(nonceRow.expires_at).getTime() < Date.now()) {
+      await sendMessage(chatId, '❌ 連結已過期（10 分鐘），請在 Gemini 重新發起連結', botToken);
+      return;
+    }
+
+    // Requirement: user must have their own TDX API key configured
+    const config = await getUserConfig(userId, supabase);
+    if (!config || !config.tdx_api_key) {
+      await sendMessage(
+        chatId,
+        '⚠️ 連結 Gemini 前，請先設定你自己的 TDX API Key\n\n' +
+          '請輸入 /setup 完成設定後，再回到 Gemini 重新發起連結。\n\n' +
+          '（MCP 功能不使用共用試用金鑰，需要你自己的 TDX API Key）',
+        botToken
+      );
+      return;
+    }
+
+    // Mark nonce authorized, bound to this Telegram user
+    const { error } = await supabase
+      .from('mcp_oauth_nonces')
+      .update({ authorized: true, telegram_user_id: userId })
+      .eq('nonce', nonce);
+
+    if (error) {
+      console.error('Failed to authorize nonce:', error);
+      await sendMessage(chatId, '❌ 綁定失敗，請稍後再試', botToken);
+      return;
+    }
+
+    await sendMessage(
+      chatId,
+      '✅ Gemini 連結成功！\n\n' +
+        '你現在可以回到 Gemini Spark，用自然語言查詢停車位與路況了。\n\n' +
+        '例如：「台北101附近哪裡好停車？」',
+      botToken
+    );
+  } catch (error) {
+    console.error('MCP auth binding error:', error);
+    await sendMessage(chatId, '❌ 綁定時發生錯誤，請稍後再試', botToken);
+  }
 }
 
 async function handleLocation(

@@ -200,11 +200,31 @@ supabase/migrations/
 ## 10. 開發階段
 
 - [x] Phase 0: 規格確認 + branch 建立
-- [ ] Phase 1: MCP 骨架 (mcp-lite + Two Hono) + find_parking（本地測試）
-- [ ] Phase 2: query_traffic tool
-- [ ] Phase 3: OAuth 2.1 endpoints + PKCE
-- [ ] Phase 4: Telegram 綁定 flow + DB schema
-- [ ] Phase 5: Gemini Spark 實測 + 部署文件
+- [x] Phase 1: MCP 骨架 (mcp-lite + Two Hono) + find_parking
+- [x] Phase 2: query_traffic tool
+- [x] Phase 3: OAuth 2.1 endpoints + PKCE
+- [x] Phase 4: Telegram 綁定 flow + DB schema (migration 011)
+- [ ] Phase 5: 部署 + Gemini Spark 實測（需 deno/supabase CLI）
+
+### 實作對應檔案
+
+| 元件 | 檔案 |
+|------|------|
+| MCP server 入口 + auth middleware | `supabase/functions/mcp-server/index.ts` |
+| MCP tools | `supabase/functions/mcp-server/mcp-tools.ts` |
+| 地點解析 | `supabase/functions/mcp-server/geocode.ts` |
+| OAuth 2.1 | `supabase/functions/mcp-server/oauth.ts` |
+| Telegram 綁定 | `supabase/functions/telegram-webhook/index.ts` (`handleMcpAuthBinding`) |
+| DB schema | `supabase/migrations/011_add_mcp_oauth.sql` |
+
+### 需要的環境變數 (Edge Function Secrets)
+
+| 變數 | 用途 |
+|------|------|
+| `SUPABASE_URL` | 已有 |
+| `SUPABASE_SERVICE_ROLE_KEY` | 已有 |
+| `TELEGRAM_BOT_USERNAME` | Telegram deep link（預設 ixoTraffic_Bot）|
+| `TDX_MCP_API_KEY` | 選用，Phase 1 本地測試用的 fallback key |
 
 ## 11. 開發原則
 
