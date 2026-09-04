@@ -28,6 +28,10 @@ import {
 // MCP server setup
 // ---------------------------------------------------------------------------
 
+// The single MCP protocol version mcp-lite understands. Clients that request
+// a newer version are downgraded to this in the initialize shim below.
+const SUPPORTED_PROTOCOL_VERSION = '2025-06-18';
+
 const mcp = new McpServer({
   name: 'trafficbot',
   version: '1.0.0',
@@ -160,17 +164,61 @@ mcpApp.all('/mcp', async (c) => {
   let rpcMethod = '';
   if (c.req.method === 'POST') {
     try {
-      const peek = await c.req.raw.clone().json();
+      const rawBody = await c.req.raw.clone().text();
+      const peek = JSON.parse(rawBody);
       rpcMethod = peek?.method || '';
+      // Full request body so we can see the client's protocolVersion +
+      // capabilities during initialize.
+      console.log(`[mcp] IN-BODY ${rpcMethod}: ${rawBody.slice(0, 800)}`);
     } catch {
       // ignore
     }
   }
+  const protoHeader = c.req.header('MCP-Protocol-Version') || '';
   console.log(
-    `[mcp] IN ${c.req.method} rpc=${rpcMethod || '-'} accept="${clientAccept}" session="${clientSession || '-'}"`
+    `[mcp] IN ${c.req.method} rpc=${rpcMethod || '-'} accept="${clientAccept}" session="${clientSession || '-'}" proto-hdr="${protoHeader}"`
   );
 
-  const response = await mcpHttpHandler(c.req.raw);
+  // Protocol-version negotiation shim.
+  //
+  // mcp-lite hard-requires the client's initialize `protocolVersion` to equal
+  // exactly the one version it supports (2025-06-18); anything else throws
+  // "Unsupported protocol version". Newer clients (MCP Inspector, Gemini)
+  // now request 2025-11-25 and get rejected. The MCP spec says the server
+  // should instead reply with a version it supports and let the client
+  // decide, so we downgrade the requested version to what mcp-lite handles
+  // before dispatching. mcp-lite then answers 2025-06-18, which spec-compliant
+  // clients accept.
+  let reqForHandler = c.req.raw;
+  if (rpcMethod === 'initialize') {
+    try {
+      const body = await c.req.raw.clone().json();
+      const requested = body?.params?.protocolVersion;
+      if (requested && requested !== SUPPORTED_PROTOCOL_VERSION) {
+        body.params.protocolVersion = SUPPORTED_PROTOCOL_VERSION;
+        console.log(
+          `[mcp] downgraded initialize protocolVersion ${requested} -> ${SUPPORTED_PROTOCOL_VERSION}`
+        );
+        reqForHandler = new Request(c.req.raw.url, {
+          method: 'POST',
+          headers: c.req.raw.headers,
+          body: JSON.stringify(body),
+        });
+      }
+    } catch {
+      // if body can't be parsed, fall through with the original request
+    }
+  }
+
+  const response = await mcpHttpHandler(reqForHandler);
+  // Dump the response body + headers for initialize to compare against what
+  // Gemini expects. clone() so we don't consume the stream we return.
+  if (rpcMethod === 'initialize') {
+    const outHeaders: Record<string, string> = {};
+    response.headers.forEach((v, k) => (outHeaders[k] = v));
+    const outBody = await response.clone().text();
+    console.log(`[mcp] OUT-INIT headers=${JSON.stringify(outHeaders)} body=${outBody.slice(0, 800)}`);
+  }
   console.log(
     `[mcp] OUT ${c.req.method} rpc=${rpcMethod || '-'} -> status ${response.status} ctype=${response.headers.get('content-type')} session-out=${response.headers.get('mcp-session-id') || '-'}`
   );
