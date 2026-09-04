@@ -9,7 +9,7 @@
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { Hono } from 'hono';
-import { McpServer, StreamableHttpTransport } from 'mcp-lite';
+import { McpServer, StreamableHttpTransport, InMemorySessionAdapter } from 'mcp-lite';
 import { registerTools } from './mcp-tools.ts';
 import {
   protectedResourceMetadata,
@@ -57,7 +57,15 @@ mcp.use(async (ctx: any, next: any) => {
 // Register find_parking + query_traffic tools
 registerTools(mcp);
 
-const transport = new StreamableHttpTransport();
+// Enable stateful sessions so the initialize response carries an
+// Mcp-Session-Id header. Spec-compliant clients (incl. Gemini) expect this
+// header after initialize and use it on subsequent requests; without it they
+// abort the connection. InMemorySessionAdapter is per-instance — acceptable
+// because Supabase tends to reuse a warm instance across a client's requests.
+// If cross-instance session loss appears, swap for a KV/DB-backed adapter.
+const transport = new StreamableHttpTransport({
+  sessionAdapter: new InMemorySessionAdapter({ maxEventBufferSize: 1024 }),
+});
 const mcpHttpHandler = transport.bind(mcp);
 
 // ---------------------------------------------------------------------------
@@ -136,7 +144,11 @@ mcpApp.all('/mcp', async (c) => {
     }
   }
 
+  if (c.req.method === 'POST') {
+    console.log('[mcp] POST /mcp authorized -> handling JSON-RPC');
+  }
   const response = await mcpHttpHandler(c.req.raw);
+  console.log(`[mcp] ${c.req.method} /mcp -> status ${response.status}, content-type=${response.headers.get('content-type')}`);
   return response;
 });
 
