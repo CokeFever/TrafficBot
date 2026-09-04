@@ -9,7 +9,8 @@
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { Hono } from 'hono';
-import { McpServer, StreamableHttpTransport, InMemorySessionAdapter } from 'mcp-lite';
+import { McpServer, StreamableHttpTransport } from 'mcp-lite';
+import { SupabaseSessionAdapter } from './session-store.ts';
 import { registerTools } from './mcp-tools.ts';
 import {
   protectedResourceMetadata,
@@ -64,11 +65,11 @@ registerTools(mcp);
 // Enable stateful sessions so the initialize response carries an
 // Mcp-Session-Id header. Spec-compliant clients (incl. Gemini) expect this
 // header after initialize and use it on subsequent requests; without it they
-// abort the connection. InMemorySessionAdapter is per-instance — acceptable
-// because Supabase tends to reuse a warm instance across a client's requests.
-// If cross-instance session loss appears, swap for a KV/DB-backed adapter.
+// abort the connection. Sessions are persisted in Postgres (SupabaseSessionAdapter)
+// so they survive Edge Function instance recycling across a client's requests.
 const transport = new StreamableHttpTransport({
-  sessionAdapter: new InMemorySessionAdapter({ maxEventBufferSize: 1024 }),
+  // deno-lint-ignore no-explicit-any
+  sessionAdapter: new SupabaseSessionAdapter({ maxEventBufferSize: 1024 }) as any,
 });
 const mcpHttpHandler = transport.bind(mcp);
 
