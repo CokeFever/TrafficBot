@@ -36,8 +36,16 @@
   ✅ **已解決（commit 5182060）**：改用 `SupabaseSessionAdapter`（`session-store.ts`），
   session 存在性 + meta 持久化到 `mcp_sessions` 表（migration 012），跨 Edge 實例有效。
   SSE resumability 的 event buffer 仍是記憶體版（best-effort，短命請求可接受）。
-- **initialize 回的仍是 `2025-06-18`**。若未來 client 只接受 `2025-11-25`（拒絕降級），
-  就得換掉 mcp-lite 或自己實作原生 2025-11-25 支援。目前 Gemini/Inspector 接受降級。
+- **initialize 回的仍是 `2025-06-18`**（mcp-lite 支援的版本；我們把新 client 要求的
+  版本降級成這個）。目前 Gemini / MCP Inspector 都接受降級，運作正常。
+  - **這不是「一年後失效」的急事。** MCP 有正式棄用政策（SEP-2596 Feature Lifecycle）：
+    功能 Active → Deprecated → Removed，且「標記棄用」到「最早可移除」之間**保證至少 12 個月**。
+    這是保護開發者的緩衝期，不是強制升級時限；舊版本不會因時間到就自動關閉
+    （例如 2026-07-28 出來後，2025-11-25 仍持續可用）。
+    參考：<https://modelcontextprotocol.io/community/feature-lifecycle>
+  - **真正要盯的訊號**不是日曆，而是「某天 Gemini 突然連不上」——代表某個 client 改成
+    只接受更新版、拒絕降級。屆時再換掉 mcp-lite 或自己實作原生新版支援即可，
+    spec 保證會有緩衝時間，可計畫性遷移，不用臨時搶修。
 - 授權畫面顯示「[Custom] Ixo」+ favicon 是 Google 對自訂 app 的固定標籤，純顯示，不影響功能。
 - 前提：使用者 Telegram 帳號要先 `/setup` 設好自己的 TDX API key，MCP 才查得到資料。
 
