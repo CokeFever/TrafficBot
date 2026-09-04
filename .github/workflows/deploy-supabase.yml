@@ -38,6 +38,9 @@ jobs:
           supabase functions deploy telegram-webhook --no-verify-jwt
           supabase functions deploy line-webhook --no-verify-jwt
           supabase functions deploy daily-report --no-verify-jwt
+          # MCP server for Gemini Spark. --no-verify-jwt because Gemini calls it
+          # without a Supabase JWT; auth is handled by the function's own OAuth 2.1 layer.
+          supabase functions deploy mcp-server --no-verify-jwt
 
       - name: Deployment Summary
         if: success()

@@ -1,87 +1,88 @@
 # MCP Server 部署與測試指南
 
-## 前置需求（本機）
+## 部署方式：GitHub Actions（push 到 main 自動觸發）
 
-需要安裝以下工具（這台開發機目前**沒有**安裝，需補上）：
+本專案的 Supabase 部署一律由 `.github/workflows/deploy-supabase.yml` 處理：
+push 到 `main` 時，CI 會 `supabase db push`（套用 migrations）並
+`supabase functions deploy` 每個 function（含 `mcp-server`）。
 
-```bash
-# Deno (Supabase Edge Functions runtime)
-# Windows (PowerShell):
-irm https://deno.land/install.ps1 | iex
+**不需要**在本機手動 deploy。合併 `feature/mcp-server` → `main` 後即自動部署。
 
-# Supabase CLI
-# 建議用 scoop 或直接下載：https://github.com/supabase/cli/releases
-scoop install supabase
+CI 已包含 mcp-server：
+```yaml
+supabase functions deploy mcp-server --no-verify-jwt
 ```
+> `--no-verify-jwt`：Gemini 呼叫時不帶 Supabase JWT，驗證由 function 自己的 OAuth 2.1 層處理。
 
-## 步驟 1：套用資料庫 migration
+migration 011（`mcp_oauth_nonces`、`mcp_oauth_tokens`）會由 CI 的 `supabase db push` 自動套用。
 
-```bash
-supabase link --project-ref <your-project-ref>
-supabase db push
-```
+## Secrets 設定（一次性，在 Supabase Dashboard）
 
-這會建立 `mcp_oauth_nonces` 與 `mcp_oauth_tokens` 表（migration 011）。
+現有 function 的 secrets（`TELEGRAM_BOT_TOKEN`、`LINE_CHANNEL_ACCESS_TOKEN`、
+`SUPABASE_SERVICE_ROLE_KEY` 等）都設在 Supabase Dashboard（Project Settings → Edge Functions → Secrets），
+CI 不負責設定 secrets。
 
-## 步驟 2：設定 Edge Function Secrets
+MCP server 需要的兩個 env var **都有安全預設值，非必要**：
 
-```bash
-supabase secrets set TELEGRAM_BOT_USERNAME=ixoTraffic_Bot
-# MCP base URL 給 Telegram 回傳連結用（若省略會自動用 SUPABASE_URL 組出）：
-supabase secrets set MCP_SERVER_URL=https://<project-ref>.supabase.co/functions/v1/mcp-server
-# 選用（本地測試 fallback，正式環境不需要，因為走 per-user key）：
-# supabase secrets set TDX_MCP_API_KEY=<client_id>:<client_secret>
-```
+| Env | 預設 | 是否需手動設 |
+|-----|------|--------------|
+| `TELEGRAM_BOT_USERNAME` | `ixoTraffic_Bot` | 否（除非 bot username 不同）|
+| `MCP_SERVER_URL` | `${SUPABASE_URL}/functions/v1/mcp-server` | 否（預設即正式 URL）|
+| `TDX_MCP_API_KEY` | 無 | 否（正式環境走 per-user key，此僅本地 fallback）|
 
 `SUPABASE_URL` 與 `SUPABASE_SERVICE_ROLE_KEY` Edge Functions 會自動注入。
+→ **結論：正式部署不需額外設定任何 secret。**
 
-## 步驟 3：本地測試（可選，但建議）
+## 本地測試（已驗證，開發機用 deno 直跑）
+
+開發機已安裝 deno（winget shim）與 supabase CLI。最快的本地驗證是直接跑 function：
 
 ```bash
-# 啟動本地 Supabase
-supabase start
-
-# 另開 terminal，serve MCP function
-supabase functions serve mcp-server --no-verify-jwt
-
-# MCP server 位於：
-# http://localhost:54321/functions/v1/mcp-server/mcp
+# 在 supabase/functions/mcp-server/ 底下
+deno run --allow-net --allow-env --env-file=../../../.env index.ts
+# → Listening on http://localhost:8000/
 ```
 
-### 用 MCP Inspector 測試
+MCP endpoint：`http://localhost:8000/mcp-server/mcp`
+
+本地測試 tools 時 OAuth 尚未綁定，`ctx.state.tdxApiKey` 為空，會 fallback 到
+`TDX_MCP_API_KEY` 環境變數（`<client_id>:<client_secret>` 格式）。正式環境走 per-user key，不需要此變數。
+
+### 用 curl 測試
 
 ```bash
-npx @modelcontextprotocol/inspector
-```
-
-在 Inspector UI 填入 endpoint：`http://localhost:54321/functions/v1/mcp-server/mcp`
-
-**注意**：本地測試 tools 時，OAuth 尚未綁定，`ctx.state.tdxApiKey` 為空，
-會 fallback 到 `TDX_MCP_API_KEY` 環境變數。所以本地測試前記得設定該變數。
-
-### 用 curl 測試 tools/list
-
-```bash
-curl -X POST http://localhost:54321/functions/v1/mcp-server/mcp \
+# tools/list
+curl -X POST http://localhost:8000/mcp-server/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# tools/call 不帶 token → 預期 401 + WWW-Authenticate（OAuth 守門正常）
 ```
 
-## 步驟 4：部署到 production
+已驗證：`initialize`、`tools/list`（兩工具 schema 正確）、`tools/call` 401 守門、
+OAuth discovery endpoints；並透過 handler 直呼驗證 find_parking（台北101 → 71 筆）
+與 query_traffic（台北車站 → 37 筆）都回傳真實 TDX 資料。
+
+### （可選）用 Supabase 本地 runtime + MCP Inspector
 
 ```bash
-supabase functions deploy mcp-server --no-verify-jwt
+supabase start
+supabase functions serve mcp-server --no-verify-jwt
+# endpoint: http://localhost:54321/functions/v1/mcp-server/mcp
+npx @modelcontextprotocol/inspector
 ```
 
-> `--no-verify-jwt`：因為 MCP 用自己的 OAuth，不用 Supabase 內建 JWT 驗證。
+## 部署到 production
+
+合併 `feature/mcp-server` → `main`，GitHub Actions 會自動部署。
 
 部署後 endpoint：
 ```
 https://<project-ref>.supabase.co/functions/v1/mcp-server/mcp
 ```
 
-## 步驟 5：在 Gemini Spark 連結
+## 在 Gemini Spark 連結
 
 1. 用**個人 Google 帳號 (美國)** 登入 Gemini web app (gemini.google.com)
 2. 確認 Keep Activity 已開啟
@@ -113,8 +114,8 @@ https://<project-ref>.supabase.co/functions/v1/mcp-server/mcp
 | 綁定連結失效 | nonce 10 分鐘過期，重新從 Gemini 發起 |
 | CPU timeout | 台北查詢抓 TCMSV 2.8MB，注意 2 秒限制；靜態資料建議加快取 |
 
-## 待辦（Phase 5 完成後）
+## 待辦
 
-- [ ] 部署到 production 並實測
+- [ ] merge feature/mcp-server → main（觸發 GitHub Actions 自動部署）
+- [ ] 部署後在 Gemini Spark 實測 OAuth 綁定 + 查詢
 - [ ] daily-report 加入 MCP 使用統計
-- [ ] merge feature/mcp-server → main
