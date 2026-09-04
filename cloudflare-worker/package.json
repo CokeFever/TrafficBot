@@ -1,0 +1,14 @@
+{
+  "name": "trafficbot-mcp-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker: clean public front (mcp.ixo.app) for the TrafficBot MCP server on Supabase.",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^4.42.0"
+  }
+}

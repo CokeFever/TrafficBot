@@ -2,9 +2,9 @@ name = "trafficbot-mcp-proxy"
 main = "src/worker.js"
 compatibility_date = "2025-07-01"
 
-# Serve the Worker on the mcp.ixo.app hostname.
-# Requires ixo.app to be an active zone on this Cloudflare account.
-# The route pattern catches every path so root well-known probes are handled.
-routes = [
-  { pattern = "mcp.ixo.app/*", zone_name = "ixo.app" }
-]
+# Custom Domain: Cloudflare auto-creates the DNS record + TLS cert for
+# mcp.ixo.app and routes ALL paths (including root well-known probes) to this
+# Worker. Requires ixo.app to be an active zone on this Cloudflare account.
+[[routes]]
+pattern = "mcp.ixo.app"
+custom_domain = true
