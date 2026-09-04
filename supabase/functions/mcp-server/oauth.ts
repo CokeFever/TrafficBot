@@ -29,8 +29,22 @@ function getSupabase(): SupabaseClient {
 }
 
 // Base URL of this MCP server (used in metadata documents).
-// Supabase serves the function under /functions/v1/mcp-server
+//
+// When fronted by a clean public domain (e.g. a Cloudflare Worker on
+// mcp.ixo.app that proxies to this function), set MCP_PUBLIC_URL to that
+// origin (e.g. "https://mcp.ixo.app"). All OAuth metadata + endpoint URLs
+// are then emitted as clean paths (https://mcp.ixo.app/authorize, /token,
+// /mcp, ...). This is required for RFC 9728 / RFC 8414 discovery to work,
+// because Supabase does not expose the origin-root /.well-known paths that
+// OAuth clients (Gemini) probe.
+//
+// Without MCP_PUBLIC_URL, falls back to the raw Supabase path
+// (/functions/v1/mcp-server) for local/direct testing.
 function getServerBaseUrl(reqUrl: string): string {
+  const publicUrl = Deno.env.get('MCP_PUBLIC_URL');
+  if (publicUrl) {
+    return publicUrl.replace(/\/+$/, '');
+  }
   const url = new URL(reqUrl);
   // Supabase terminates TLS in front of the function, so the request URL
   // arrives as http:. OAuth 2.1 clients (incl. Gemini) require the

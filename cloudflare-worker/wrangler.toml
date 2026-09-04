@@ -1,0 +1,10 @@
+name = "trafficbot-mcp-proxy"
+main = "src/worker.js"
+compatibility_date = "2025-07-01"
+
+# Serve the Worker on the mcp.ixo.app hostname.
+# Requires ixo.app to be an active zone on this Cloudflare account.
+# The route pattern catches every path so root well-known probes are handled.
+routes = [
+  { pattern = "mcp.ixo.app/*", zone_name = "ixo.app" }
+]

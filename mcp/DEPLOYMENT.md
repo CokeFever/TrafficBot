@@ -16,22 +16,69 @@ supabase functions deploy mcp-server --no-verify-jwt
 
 migration 011（`mcp_oauth_nonces`、`mcp_oauth_tokens`）會由 CI 的 `supabase db push` 自動套用。
 
+## ⚠️ 為什麼需要 Cloudflare Worker（乾淨網域前置代理）
+
+Gemini 依 RFC 9728 / RFC 8414 探索 OAuth metadata 時，會打 **網域根目錄** 的
+well-known 路徑，例如：
+```
+https://<host>/.well-known/oauth-protected-resource/mcp
+https://<host>/.well-known/oauth-authorization-server
+```
+但 Supabase Edge Function 只能掛在 `/functions/v1/<name>/` 底下，**根目錄的
+`/.well-known/...` 到不了 function**（回 404/401）。所以直接把 Supabase URL 給
+Gemini 會失敗，錯誤訊息：*"This MCP server uses an authentication method that
+Gemini doesn't support"*。
+
+**解法**：用一個 Cloudflare Worker 掛在 `mcp.ixo.app`，把乾淨路徑轉發到 Supabase
+function，並在根目錄提供 well-known。給 Gemini 的 URL 變成 `https://mcp.ixo.app/mcp`。
+
+Worker 程式碼在 `cloudflare-worker/`，是透明薄代理（不碰 body / token / auth）。
+
+### 部署 Worker
+
+```bash
+cd cloudflare-worker
+npx wrangler deploy
+```
+
+前提：`ixo.app` 是此 Cloudflare 帳號的 active zone（DNS 已在 Cloudflare）。
+`wrangler.toml` 的 route `mcp.ixo.app/*` 會自動建立對應的 DNS/route。
+若 `mcp` 子網域尚未存在，wrangler 部署時會提示建立（或手動在 Cloudflare DNS 加一筆
+proxied 記錄）。
+
+### 驗證 Worker
+
+```bash
+curl https://mcp.ixo.app/.well-known/oauth-protected-resource/mcp
+# → {"resource":"https://mcp.ixo.app/mcp","authorization_servers":["https://mcp.ixo.app"],...}
+curl -X POST https://mcp.ixo.app/mcp -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
+# → 401 + WWW-Authenticate（OAuth 探索觸發）
+```
+
 ## Secrets 設定（一次性，在 Supabase Dashboard）
 
 現有 function 的 secrets（`TELEGRAM_BOT_TOKEN`、`LINE_CHANNEL_ACCESS_TOKEN`、
 `SUPABASE_SERVICE_ROLE_KEY` 等）都設在 Supabase Dashboard（Project Settings → Edge Functions → Secrets），
 CI 不負責設定 secrets。
 
-MCP server 需要的兩個 env var **都有安全預設值，非必要**：
+搭配 Cloudflare Worker 後，**必須**設定兩個 secret 讓 metadata 與回連結指向乾淨網域：
 
-| Env | 預設 | 是否需手動設 |
+| Env | 值 | 是否需手動設 |
 |-----|------|--------------|
-| `TELEGRAM_BOT_USERNAME` | `ixoTraffic_Bot` | 否（除非 bot username 不同）|
-| `MCP_SERVER_URL` | `${SUPABASE_URL}/functions/v1/mcp-server` | 否（預設即正式 URL）|
+| `MCP_PUBLIC_URL` | `https://mcp.ixo.app` | **是**（metadata 用乾淨網域，OAuth 探索才會成功）|
+| `MCP_SERVER_URL` | `https://mcp.ixo.app` | **是**（Telegram 回連 Gemini 的 return link）|
+| `TELEGRAM_BOT_USERNAME` | `ixoTraffic_Bot` | 否（預設即此值）|
 | `TDX_MCP_API_KEY` | 無 | 否（正式環境走 per-user key，此僅本地 fallback）|
 
+在 Supabase Dashboard → Edge Functions → Secrets 新增：
+```
+MCP_PUBLIC_URL = https://mcp.ixo.app
+MCP_SERVER_URL = https://mcp.ixo.app
+```
+
 `SUPABASE_URL` 與 `SUPABASE_SERVICE_ROLE_KEY` Edge Functions 會自動注入。
-→ **結論：正式部署不需額外設定任何 secret。**
 
 ## 本地測試（已驗證，開發機用 deno 直跑）
 
@@ -77,9 +124,9 @@ npx @modelcontextprotocol/inspector
 
 合併 `feature/mcp-server` → `main`，GitHub Actions 會自動部署。
 
-部署後 endpoint：
+部署後（透過 Cloudflare Worker）對外 endpoint：
 ```
-https://<project-ref>.supabase.co/functions/v1/mcp-server/mcp
+https://mcp.ixo.app/mcp
 ```
 
 ## 在 Gemini Spark 連結
@@ -87,11 +134,12 @@ https://<project-ref>.supabase.co/functions/v1/mcp-server/mcp
 1. 用**個人 Google 帳號 (美國)** 登入 Gemini web app (gemini.google.com)
 2. 確認 Keep Activity 已開啟
 3. Settings → Connected Apps → Custom apps
-4. 填入 MCP server URL：
-   `https://<project-ref>.supabase.co/functions/v1/mcp-server/mcp`
-5. Gemini 會導向 OAuth 授權 → 302 到 Telegram
-6. 在 Telegram 完成綁定（需已設定 TDX API Key）
-7. 回到 Gemini，即可用自然語言查詢
+4. 填入 MCP server URL（**乾淨網域，非 Supabase URL**）：
+   `https://mcp.ixo.app/mcp`
+5. Client ID / Client secret **留空**（走 Dynamic Client Registration）
+6. Gemini 會導向 OAuth 授權 → 302 到 Telegram
+7. 在 Telegram 完成綁定（需已設定 TDX API Key）
+8. 回到 Gemini，即可用自然語言查詢
 
 ## OAuth 流程驗證清單
 
