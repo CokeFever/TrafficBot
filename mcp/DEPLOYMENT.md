@@ -27,6 +27,8 @@ supabase db push
 
 ```bash
 supabase secrets set TELEGRAM_BOT_USERNAME=ixoTraffic_Bot
+# MCP base URL 給 Telegram 回傳連結用（若省略會自動用 SUPABASE_URL 組出）：
+supabase secrets set MCP_SERVER_URL=https://<project-ref>.supabase.co/functions/v1/mcp-server
 # 選用（本地測試 fallback，正式環境不需要，因為走 per-user key）：
 # supabase secrets set TDX_MCP_API_KEY=<client_id>:<client_secret>
 ```
@@ -96,8 +98,8 @@ https://<project-ref>.supabase.co/functions/v1/mcp-server/mcp
 - [ ] `GET /mcp-server/.well-known/oauth-authorization-server` 回傳 JSON
 - [ ] `GET /mcp-server/authorize?...` 302 到 t.me/ixoTraffic_Bot?start=mcpauth_xxx
 - [ ] Telegram `/start mcpauth_xxx`：未設 TDX key → 提示先 /setup
-- [ ] Telegram `/start mcpauth_xxx`：已設 TDX key → 綁定成功
-- [ ] `GET /mcp-server/authorize/complete?nonce=xxx`：綁定前 202 pending，綁定後 302 帶 code
+- [ ] Telegram `/start mcpauth_xxx`：已設 TDX key → 綁定成功並回傳「返回 Gemini」連結
+- [ ] `GET /mcp-server/authorize/return?nonce=xxx`：綁定前 202 pending，綁定後 302 帶 code
 - [ ] `POST /mcp-server/token`（code + PKCE verifier）→ 回 access_token
 - [ ] `POST /mcp-server/mcp`（Bearer token）→ tools 可執行且用該使用者的 TDX key
 

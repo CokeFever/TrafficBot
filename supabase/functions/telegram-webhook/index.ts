@@ -313,12 +313,21 @@ async function handleMcpAuthBinding(
       return;
     }
 
+    // Build the "return to Gemini" link that completes the OAuth flow.
+    const mcpBaseUrl =
+      Deno.env.get('MCP_SERVER_URL') ||
+      `${Deno.env.get('SUPABASE_URL')}/functions/v1/mcp-server`;
+    const returnUrl = `${mcpBaseUrl}/authorize/return?nonce=${encodeURIComponent(nonce)}`;
+
     await sendMessage(
       chatId,
-      '✅ Gemini 連結成功！\n\n' +
-        '你現在可以回到 Gemini Spark，用自然語言查詢停車位與路況了。\n\n' +
+      '✅ 身分驗證成功！\n\n' +
+        '請點擊下方連結完成與 Gemini 的連結：\n' +
+        returnUrl +
+        '\n\n完成後即可回到 Gemini Spark，用自然語言查詢停車位與路況。\n' +
         '例如：「台北101附近哪裡好停車？」',
-      botToken
+      botToken,
+      { disable_web_page_preview: true }
     );
   } catch (error) {
     console.error('MCP auth binding error:', error);

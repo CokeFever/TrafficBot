@@ -1,6 +1,6 @@
 {
   "imports": {
     "hono": "npm:hono@^4.9.7",
-    "mcp-lite": "npm:mcp-lite@^0.6.0"
+    "mcp-lite": "https://esm.sh/mcp-lite@0.6.1"
   }
 }

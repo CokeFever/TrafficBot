@@ -60,21 +60,29 @@ _shared/tdx-client.ts (重用：停車 / 路況 / TCMSV)
 MCP server 扮演 **OAuth Resource Server** 角色。採用 Authorization Code + PKCE (S256)。
 
 ```
-1. Gemini 呼叫 /mcp（無 token）
+1. Gemini 呼叫 /mcp tools/call（無 token）
 2. Server 回 401 + WWW-Authenticate → 指向 protected resource metadata
 3. Gemini 讀 /.well-known/oauth-protected-resource → 得知 auth server
 4. Gemini 讀 /.well-known/oauth-authorization-server → OAuth metadata
 5. Gemini 導向 /authorize（帶 PKCE challenge, redirect_uri, state）
-6. /authorize 產生 nonce，302 redirect 到 t.me/ixoTraffic_Bot?start=<nonce>
+6. /authorize 產生 nonce，302 redirect 到 t.me/ixoTraffic_Bot?start=mcpauth_<nonce>
 7. 使用者在 Telegram 完成綁定：
-   - Bot 收到 /start <nonce>
+   - Bot 收到 /start mcpauth_<nonce>
    - 檢查該 Telegram user 是否已設定 TDX key
      - ❌ 未設定 → 回覆「請先 /setup 設定 TDX API Key」，綁定失敗
-     - ✅ 已設定 → nonce 標記為 authorized + 綁定 telegram_user_id
-8. /authorize 端輪詢 nonce 狀態 → 已授權後 302 redirect 回 Gemini（帶 code）
+     - ✅ 已設定 → nonce 標記 authorized + 綁定 telegram_user_id
+       並回覆一個「返回 Gemini 完成連結」的按鈕/連結，指向
+       /authorize/return?nonce=<nonce>
+8. 使用者點該連結 → /authorize/return 檢查 nonce 已授權 →
+   產生 auth code → 302 redirect 回 Gemini 的 redirect_uri（帶 code + state）
 9. Gemini 用 code + PKCE verifier 呼叫 /token → 拿 access_token
 10. Gemini 之後每次呼叫 /mcp 都帶此 token
 ```
+
+> 說明：因為身分驗證是「帶外 (out-of-band)」透過 Telegram，標準 OAuth 的
+> 「/authorize 直接 redirect 回 client」被拆成兩段：先去 Telegram 綁定，
+> 綁定成功後 Telegram 給一個「返回連結」讓使用者回到 /authorize/return，
+> 由它 302 回 Gemini。這樣完全用 302（不需 HTML 頁面），符合 Supabase 限制。
 
 ### 為什麼用 Telegram 綁定？
 
@@ -224,6 +232,7 @@ supabase/migrations/
 | `SUPABASE_URL` | 已有 |
 | `SUPABASE_SERVICE_ROLE_KEY` | 已有 |
 | `TELEGRAM_BOT_USERNAME` | Telegram deep link（預設 ixoTraffic_Bot）|
+| `MCP_SERVER_URL` | Telegram 回傳連結用的 MCP base URL（預設 `${SUPABASE_URL}/functions/v1/mcp-server`）|
 | `TDX_MCP_API_KEY` | 選用，Phase 1 本地測試用的 fallback key |
 
 ## 11. 開發原則
