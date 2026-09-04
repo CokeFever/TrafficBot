@@ -32,7 +32,13 @@ function getSupabase(): SupabaseClient {
 // Supabase serves the function under /functions/v1/mcp-server
 function getServerBaseUrl(reqUrl: string): string {
   const url = new URL(reqUrl);
-  return `${url.protocol}//${url.host}/functions/v1/mcp-server`;
+  // Supabase terminates TLS in front of the function, so the request URL
+  // arrives as http:. OAuth 2.1 clients (incl. Gemini) require the
+  // authorization server metadata to use https, so force it for any
+  // non-localhost host. Localhost stays http for local testing.
+  const isLocal = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+  const protocol = isLocal ? url.protocol : 'https:';
+  return `${protocol}//${url.host}/functions/v1/mcp-server`;
 }
 
 // --- Helpers --------------------------------------------------------------
