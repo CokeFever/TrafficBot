@@ -32,9 +32,10 @@
 
 ### ⚠️ 已知技術債 / 後續
 
-- **InMemorySessionAdapter 是每個實例獨立**。Supabase serverless 換容器時 session 會遺失。
-  目前 Gemini 每個請求都重新 initialize（stateless-ish），暫時 OK；若出現連上後
-  隔一陣子失效，要改成 KV/DB 版的 SessionAdapter（Supabase table 或 Deno KV）。
+- ~~InMemorySessionAdapter 是每個實例獨立，換容器 session 會掉。~~
+  ✅ **已解決（commit 5182060）**：改用 `SupabaseSessionAdapter`（`session-store.ts`），
+  session 存在性 + meta 持久化到 `mcp_sessions` 表（migration 012），跨 Edge 實例有效。
+  SSE resumability 的 event buffer 仍是記憶體版（best-effort，短命請求可接受）。
 - **initialize 回的仍是 `2025-06-18`**。若未來 client 只接受 `2025-11-25`（拒絕降級），
   就得換掉 mcp-lite 或自己實作原生 2025-11-25 支援。目前 Gemini/Inspector 接受降級。
 - 授權畫面顯示「[Custom] Ixo」+ favicon 是 Google 對自訂 app 的固定標籤，純顯示，不影響功能。
