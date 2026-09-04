@@ -3,7 +3,37 @@
 > 換電腦接手用。所有進度都在 GitHub `main`（最新 commit `1149ef2`）。
 > 回家 `git pull` 即可續作。工作目錄乾淨，無未 commit 變更。
 
-## 目前狀態：卡在 OAuth 最後一段（token exchange）
+## 更新（commit feb7ea9）：已改成「同視窗」OAuth 流程
+
+採用了下方「方案 A」。out-of-band Telegram 手動 return 連結已移除，改為 Gemini
+popup 內的輪詢頁面，綁定完成後由頁面自身導回 Gemini callback，讓 Gemini 接著打 `/token`。
+
+改動：
+- `oauth.ts`：新增 `/authorize/create`（回 JSON：nonce + Telegram deep link）與
+  `/authorize/poll`（回 `pending` / `ready`+`redirect` / `expired` / `error`）。
+  保留舊的 `/authorize` 302 與 `/authorize/return` 當 fallback。
+- `index.ts`：接上 `/authorize/create`、`/authorize/poll` 路由。
+- `cloudflare-worker/src/worker.js`：攔截 `GET /authorize`，改由 **Worker 直接產 HTML**
+  同視窗頁面（避開 Supabase 把 text/html 降級成 text/plain 的問題）。頁面開 Telegram
+  綁定、每 2 秒 poll `/authorize/poll`，`ready` 時 `window.location = redirect`。
+- `telegram-webhook/index.ts`：綁定成功訊息簡化，不再需要手動點 return 連結。
+
+已部署 / 已驗證：
+- ✅ Supabase functions `mcp-server` + `telegram-webhook` 已用 CLI 部署（並 push 到 main，CI 同步）。
+- ✅ `curl` 驗證 `/authorize/create` 回正確 JSON、`/authorize/poll` 回 `pending`、
+  未知 nonce 回 error、缺參數回 400，clean domain (`mcp.ixo.app`) pass-through 正常。
+- ⏳ **待辦：部署 Cloudflare Worker**（新的 HTML 頁面尚未上線）。這台可能還沒登入 Cloudflare。
+  ```bash
+  cd cloudflare-worker
+  npx wrangler login        # 用 cokefever@gmail.com；或設 CLOUDFLARE_API_TOKEN 免瀏覽器
+  npx wrangler deploy
+  ```
+  部署後：`curl -i https://mcp.ixo.app/authorize?response_type=code&redirect_uri=...&code_challenge=...&code_challenge_method=S256`
+  應回 **200 text/html**（而非 302），代表新流程上線。之後在 Gemini 重新連 `https://mcp.ixo.app/mcp` 實測。
+
+---
+
+## （歷史）目前狀態：卡在 OAuth 最後一段（token exchange）
 
 整條 MCP + OAuth 探索鏈路已通，卡在**綁定後 Gemini 沒有完成連線**。
 
