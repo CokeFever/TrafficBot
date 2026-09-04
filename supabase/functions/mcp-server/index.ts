@@ -100,7 +100,10 @@ mcpApp.get('/authorize/return', (c) => handleAuthorizeComplete(new URL(c.req.url
 mcpApp.post('/token', (c) => handleToken(c.req.raw));
 
 // Dynamic Client Registration (RFC 7591) — Gemini tries this before manual creds
-mcpApp.post('/register', (c) => handleRegister(c.req.raw));
+mcpApp.post('/register', (c) => {
+  console.log('[oauth] /register HIT (DCR)');
+  return handleRegister(c.req.raw);
+});
 
 // MCP endpoint (StreamableHTTP).
 // Per the MCP authorization spec, an unauthenticated request (including the
@@ -115,6 +118,7 @@ mcpApp.all('/mcp', async (c) => {
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
     const auth = token ? await validateToken(token) : null;
     if (!auth) {
+      console.log(`[mcp] POST /mcp 401 (token present=${token ? 'yes' : 'no'})`);
       return new Response(
         JSON.stringify({
           jsonrpc: '2.0',

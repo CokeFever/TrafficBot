@@ -284,6 +284,9 @@ export async function handleAuthorizePoll(url: URL): Promise<Response> {
   redirect.searchParams.set('code', authCode);
   if (row.client_state) redirect.searchParams.set('state', row.client_state);
 
+  console.log(
+    `[oauth] poll READY nonce=${nonce} -> issued code, redirecting to ${redirect.origin}${redirect.pathname}`
+  );
   return jsonResponse({ status: 'ready', redirect: redirect.toString() }, 200);
 }
 
@@ -376,11 +379,13 @@ export async function handleToken(req: Request): Promise<Response> {
 
   const grantType = params.get('grant_type');
   const supabase = getSupabase();
+  console.log(`[oauth] /token HIT grant_type=${grantType}`);
 
   if (grantType === 'authorization_code') {
     const code = params.get('code');
     const codeVerifier = params.get('code_verifier');
     if (!code || !codeVerifier) {
+      console.warn('[oauth] /token authorization_code missing code or code_verifier');
       return tokenError('invalid_request', 'Missing code or code_verifier');
     }
 
@@ -391,15 +396,18 @@ export async function handleToken(req: Request): Promise<Response> {
       .single();
 
     if (!row || !row.authorized || !row.telegram_user_id) {
+      console.warn('[oauth] /token invalid_grant: code not found or not authorized');
       return tokenError('invalid_grant', 'Invalid authorization code');
     }
     if (new Date(row.expires_at).getTime() < Date.now()) {
+      console.warn('[oauth] /token invalid_grant: code expired');
       return tokenError('invalid_grant', 'Authorization code expired');
     }
 
     // Verify PKCE
     const expectedChallenge = await sha256Base64Url(codeVerifier);
     if (expectedChallenge !== row.code_challenge) {
+      console.warn('[oauth] /token invalid_grant: PKCE mismatch');
       return tokenError('invalid_grant', 'PKCE verification failed');
     }
 
@@ -418,6 +426,7 @@ export async function handleToken(req: Request): Promise<Response> {
     // Consume the nonce (one-time use)
     await supabase.from('mcp_oauth_nonces').delete().eq('nonce', row.nonce);
 
+    console.log(`[oauth] /token SUCCESS issued access token for user=${row.telegram_user_id}`);
     return tokenSuccess(accessToken, refreshToken);
   }
 
