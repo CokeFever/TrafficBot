@@ -27,9 +27,12 @@ CREATE INDEX IF NOT EXISTS idx_mcp_sessions_expires ON mcp_sessions(expires_at);
 
 -- ============================================================================
 -- Row Level Security: service_role only (Edge Functions use service role)
+-- Idempotent: safe to re-run (ENABLE RLS is a no-op if already on; the policy
+-- is dropped first so a rerun does not fail with "already exists" SQLSTATE 42710).
 -- ============================================================================
 ALTER TABLE mcp_sessions ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Service role full access to mcp_sessions" ON mcp_sessions;
 CREATE POLICY "Service role full access to mcp_sessions"
   ON mcp_sessions FOR ALL TO service_role
   USING (true) WITH CHECK (true);
