@@ -121,6 +121,16 @@ mcpApp.post('/register', (c) => {
 mcpApp.all('/mcp', async (c) => {
   const baseUrl = getServerBaseUrl(c.req.url);
 
+  // Streamable HTTP spec: a GET to the MCP endpoint is the client's request to
+  // open a server->client SSE stream. A server that does not offer one MUST
+  // answer 405 Method Not Allowed (not 400). We are POST-only, so return a
+  // clean 405 for GET/HEAD instead of mcp-lite's 400/plain-text, which some
+  // clients (Gemini) treat as a broken endpoint.
+  if (c.req.method === 'GET' || c.req.method === 'HEAD') {
+    console.log(`[mcp] ${c.req.method} /mcp -> 405 (no server-initiated SSE stream)`);
+    return new Response(null, { status: 405, headers: { Allow: 'POST, DELETE' } });
+  }
+
   if (c.req.method === 'POST') {
     const authHeader = c.req.header('Authorization') || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
@@ -185,7 +195,10 @@ mcpApp.all('/mcp', async (c) => {
     clientAccept.includes('text/event-stream')
   ) {
     const jsonBody = await response.text();
-    const sseBody = `event: message\ndata: ${jsonBody}\n\n`;
+    // Match mcp-lite's own SSE framing exactly (a bare `data:` line, no
+    // `event:` prefix) so Gemini sees an identical shape to every other
+    // method's SSE response.
+    const sseBody = `data: ${jsonBody}\n\n`;
     const headers = new Headers(response.headers);
     headers.set('Content-Type', 'text/event-stream');
     headers.delete('Content-Length');
