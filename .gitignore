@@ -62,3 +62,7 @@ archive/
 # Temporary files
 tmp/
 temp/
+
+# Supabase / Deno local artifacts
+supabase/.temp/
+**/deno.lock
