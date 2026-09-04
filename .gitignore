@@ -66,3 +66,6 @@ temp/
 # Supabase / Deno local artifacts
 supabase/.temp/
 **/deno.lock
+
+# Cloudflare Wrangler local cache
+cloudflare-worker/.wrangler/

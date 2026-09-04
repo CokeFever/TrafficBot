@@ -3,7 +3,46 @@
 > 換電腦接手用。所有進度都在 GitHub `main`（最新 commit `1149ef2`）。
 > 回家 `git pull` 即可續作。工作目錄乾淨，無未 commit 變更。
 
-## 更新（commit feb7ea9）：已改成「同視窗」OAuth 流程
+## ✅ 已解決（commit ba9e740）：Gemini 能連上並成功查詢
+
+整條鏈路打通：OAuth 綁定 → MCP 握手 → 工具執行都成功。實測 Gemini 查「台北101附近哪裡好停車」
+回傳 71 筆真實停車資料（即時空位、費率、導航連結）。
+
+### 真正的根因：MCP protocol 版本協商
+
+用 MCP Inspector（官方 client）測出決定性錯誤：
+`Unsupported protocol version. Server supports: 2025-06-18, client requested: 2025-11-25`
+
+- 新版 client（Gemini Spark、最新 Inspector）在 initialize 要求 protocol `2025-11-25`。
+- mcp-lite（連最新 0.10.0）**寫死只認 `2025-06-18`**，收到別的版本直接丟錯，
+  不做 spec 規定的「回自己支援的版本讓 client 決定」協商。
+- 之前一直以為是 SSE/JSON 格式問題，其實都是這個版本協商在擋。
+
+### 修法（都在 `supabase/functions/mcp-server/index.ts`）
+
+1. **版本降級 shim（關鍵）**：攔截 initialize，把 client 要求的 protocolVersion 改寫成
+   `2025-06-18`（`SUPPORTED_PROTOCOL_VERSION`）再交給 mcp-lite，避免它丟錯。
+2. **session adapter**：啟用 `InMemorySessionAdapter`，讓 initialize 回應帶 `Mcp-Session-Id`。
+3. **initialize SSE shim**：當 client Accept 含 `text/event-stream` 時，把 initialize 的 JSON
+   回應重新包成 SSE（`data: {...}`）。
+4. **GET/HEAD /mcp 回 405**（合規），取代 mcp-lite 的 400。
+5. **同視窗 OAuth**（先前 commit feb7ea9）：Worker 攔 `GET /authorize` 出輪詢頁面。
+6. **on-street address 修正**（`_shared/tdx-client.ts`）：TDX 的 RoadName/RoadSection 是
+   多語系物件，之前直接字串化成 `[object Object]`，改用 `toText()` 取 Zh_tw。
+
+### ⚠️ 已知技術債 / 後續
+
+- **InMemorySessionAdapter 是每個實例獨立**。Supabase serverless 換容器時 session 會遺失。
+  目前 Gemini 每個請求都重新 initialize（stateless-ish），暫時 OK；若出現連上後
+  隔一陣子失效，要改成 KV/DB 版的 SessionAdapter（Supabase table 或 Deno KV）。
+- **initialize 回的仍是 `2025-06-18`**。若未來 client 只接受 `2025-11-25`（拒絕降級），
+  就得換掉 mcp-lite 或自己實作原生 2025-11-25 支援。目前 Gemini/Inspector 接受降級。
+- 授權畫面顯示「[Custom] Ixo」+ favicon 是 Google 對自訂 app 的固定標籤，純顯示，不影響功能。
+- 前提：使用者 Telegram 帳號要先 `/setup` 設好自己的 TDX API key，MCP 才查得到資料。
+
+---
+
+## （歷史）更新（commit feb7ea9）：已改成「同視窗」OAuth 流程
 
 採用了下方「方案 A」。out-of-band Telegram 手動 return 連結已移除，改為 Gemini
 popup 內的輪詢頁面，綁定完成後由頁面自身導回 Gemini callback，讓 Gemini 接著打 `/token`。
