@@ -192,6 +192,108 @@ export async function handleAuthorize(url: URL): Promise<Response> {
   });
 }
 
+// --- /authorize/create (JSON) ---------------------------------------------
+// Same as handleAuthorize but returns JSON instead of a 302. This is called
+// by the Cloudflare Worker, which serves a same-window HTML polling page
+// (Supabase Edge downgrades text/html responses, so the page cannot be
+// served from here). The Worker keeps the user in Gemini's OAuth popup and
+// polls /authorize/poll until the Telegram binding completes, then navigates
+// the popup to the client's redirect_uri — so Gemini's watcher sees the
+// callback and proceeds to call /token.
+export async function handleAuthorizeCreate(url: URL): Promise<Response> {
+  const responseType = url.searchParams.get('response_type');
+  const redirectUri = url.searchParams.get('redirect_uri');
+  const codeChallenge = url.searchParams.get('code_challenge');
+  const codeChallengeMethod = url.searchParams.get('code_challenge_method') || 'S256';
+  const state = url.searchParams.get('state') || '';
+
+  if (responseType !== 'code' || !redirectUri || !codeChallenge) {
+    return jsonResponse(
+      { error: 'invalid_request', error_description: 'Missing required OAuth params' },
+      400
+    );
+  }
+  if (codeChallengeMethod !== 'S256') {
+    return jsonResponse(
+      { error: 'invalid_request', error_description: 'Only S256 PKCE supported' },
+      400
+    );
+  }
+
+  const supabase = getSupabase();
+  const nonce = randomToken(16);
+  const expiresAt = new Date(Date.now() + NONCE_TTL_MS).toISOString();
+
+  const { error } = await supabase.from('mcp_oauth_nonces').insert({
+    nonce,
+    code_challenge: codeChallenge,
+    code_challenge_method: codeChallengeMethod,
+    redirect_uri: redirectUri,
+    client_state: state,
+    authorized: false,
+    expires_at: expiresAt,
+  });
+
+  if (error) {
+    console.error('Failed to create nonce:', error);
+    return jsonResponse({ error: 'server_error' }, 500);
+  }
+
+  const telegramUrl = `https://t.me/${TELEGRAM_BOT_USERNAME}?start=mcpauth_${nonce}`;
+  return jsonResponse({ nonce, telegram_url: telegramUrl, expires_at: expiresAt }, 200);
+}
+
+// --- /authorize/poll (JSON) -----------------------------------------------
+// Polled by the Worker's same-window page. Returns the binding status and,
+// once complete, the final redirect URL (client redirect_uri + code + state)
+// for the page to navigate to.
+export async function handleAuthorizePoll(url: URL): Promise<Response> {
+  const nonce = url.searchParams.get('nonce');
+  if (!nonce) {
+    return jsonResponse({ error: 'invalid_request', error_description: 'Missing nonce' }, 400);
+  }
+
+  const supabase = getSupabase();
+  const { data: row } = await supabase
+    .from('mcp_oauth_nonces')
+    .select('*')
+    .eq('nonce', nonce)
+    .single();
+
+  if (!row) {
+    return jsonResponse({ status: 'error', error: 'invalid_grant', error_description: 'Unknown nonce' }, 200);
+  }
+  if (new Date(row.expires_at).getTime() < Date.now()) {
+    return jsonResponse({ status: 'expired', error_description: 'Authorization expired' }, 200);
+  }
+  if (!row.authorized || !row.telegram_user_id) {
+    return jsonResponse({ status: 'pending' }, 200);
+  }
+
+  // Issue (or reuse) a one-time authorization code.
+  let authCode = row.auth_code;
+  if (!authCode) {
+    authCode = randomToken(24);
+    await supabase
+      .from('mcp_oauth_nonces')
+      .update({ auth_code: authCode, expires_at: new Date(Date.now() + AUTH_CODE_TTL_MS).toISOString() })
+      .eq('nonce', nonce);
+  }
+
+  const redirect = new URL(row.redirect_uri);
+  redirect.searchParams.set('code', authCode);
+  if (row.client_state) redirect.searchParams.set('state', row.client_state);
+
+  return jsonResponse({ status: 'ready', redirect: redirect.toString() }, 200);
+}
+
+function jsonResponse(body: Record<string, unknown>, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+  });
+}
+
 // --- /authorize/complete --------------------------------------------------
 // After the user binds in Telegram, Gemini/the browser hits this endpoint
 // (polled). When the nonce is authorized, issue an auth code and redirect

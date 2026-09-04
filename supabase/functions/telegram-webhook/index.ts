@@ -313,18 +313,14 @@ async function handleMcpAuthBinding(
       return;
     }
 
-    // Build the "return to Gemini" link that completes the OAuth flow.
-    const mcpBaseUrl =
-      Deno.env.get('MCP_SERVER_URL') ||
-      `${Deno.env.get('SUPABASE_URL')}/functions/v1/mcp-server`;
-    const returnUrl = `${mcpBaseUrl}/authorize/return?nonce=${encodeURIComponent(nonce)}`;
-
+    // The Gemini OAuth popup polls for this binding and completes the flow
+    // itself (same-window redirect back to Gemini). The user just needs to
+    // return to that page/tab — no manual link tap required.
     await sendMessage(
       chatId,
       '✅ 身分驗證成功！\n\n' +
-        '請點擊下方連結完成與 Gemini 的連結：\n' +
-        returnUrl +
-        '\n\n完成後即可回到 Gemini Spark，用自然語言查詢停車位與路況。\n' +
+        '請回到剛才發起連結的 Gemini 頁面，連結會自動完成（約幾秒內）。\n\n' +
+        '完成後即可在 Gemini Spark 用自然語言查詢停車位與路況。\n' +
         '例如：「台北101附近哪裡好停車？」',
       botToken,
       { disable_web_page_preview: true }

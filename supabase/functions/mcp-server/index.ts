@@ -15,6 +15,8 @@ import {
   protectedResourceMetadata,
   authorizationServerMetadata,
   handleAuthorize,
+  handleAuthorizeCreate,
+  handleAuthorizePoll,
   handleAuthorizeComplete,
   handleToken,
   handleRegister,
@@ -78,10 +80,20 @@ mcpApp.get('/.well-known/oauth-authorization-server', (c) => {
   return c.json(authorizationServerMetadata(baseUrl));
 });
 
-// OAuth authorize (302 -> Telegram deep link)
+// OAuth authorize (legacy 302 -> Telegram deep link).
+// In the current flow, the Cloudflare Worker intercepts GET /authorize and
+// serves a same-window polling page; it calls /authorize/create + /authorize/poll
+// below. This direct 302 handler is kept as a fallback for clients hitting
+// the function directly (e.g. local testing without the Worker).
 mcpApp.get('/authorize', (c) => handleAuthorize(new URL(c.req.url)));
 
-// OAuth authorize return (user taps this from Telegram after binding)
+// OAuth authorize: create nonce, return Telegram deep link as JSON (Worker calls this).
+mcpApp.get('/authorize/create', (c) => handleAuthorizeCreate(new URL(c.req.url)));
+
+// OAuth authorize: poll binding status; returns final redirect (code+state) when ready.
+mcpApp.get('/authorize/poll', (c) => handleAuthorizePoll(new URL(c.req.url)));
+
+// OAuth authorize return (legacy: user taps this from Telegram after binding)
 mcpApp.get('/authorize/return', (c) => handleAuthorizeComplete(new URL(c.req.url)));
 
 // OAuth token endpoint
