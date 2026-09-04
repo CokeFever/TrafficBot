@@ -17,6 +17,7 @@ import {
   handleAuthorize,
   handleAuthorizeComplete,
   handleToken,
+  handleRegister,
   validateToken,
   getServerBaseUrl,
 } from './oauth.ts';
@@ -86,46 +87,36 @@ mcpApp.get('/authorize/return', (c) => handleAuthorizeComplete(new URL(c.req.url
 // OAuth token endpoint
 mcpApp.post('/token', (c) => handleToken(c.req.raw));
 
+// Dynamic Client Registration (RFC 7591) — Gemini tries this before manual creds
+mcpApp.post('/register', (c) => handleRegister(c.req.raw));
+
 // MCP endpoint (StreamableHTTP).
-// Emits 401 + WWW-Authenticate (RFC 9728) when a tools/call is attempted
-// without a valid token, so Gemini knows to start the OAuth flow.
-// initialize / tools/list are allowed unauthenticated for discovery.
+// Per the MCP authorization spec, an unauthenticated request (including the
+// initial `initialize`) must return 401 + WWW-Authenticate pointing at the
+// protected-resource metadata, so the client (Gemini) discovers the OAuth
+// flow. We enforce this on every JSON-RPC POST that lacks a valid token.
 mcpApp.all('/mcp', async (c) => {
   const baseUrl = getServerBaseUrl(c.req.url);
 
-  // Peek at the JSON-RPC method to decide whether auth is required.
   if (c.req.method === 'POST') {
-    let method = '';
-    let rawBody = '';
-    try {
-      rawBody = await c.req.raw.clone().text();
-      const parsed = JSON.parse(rawBody);
-      method = Array.isArray(parsed) ? parsed[0]?.method : parsed?.method;
-    } catch {
-      // ignore parse errors; let the transport handle malformed requests
-    }
-
-    const requiresAuth = method === 'tools/call';
-    if (requiresAuth) {
-      const authHeader = c.req.header('Authorization') || '';
-      const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-      const auth = token ? await validateToken(token) : null;
-      if (!auth) {
-        return new Response(
-          JSON.stringify({
-            jsonrpc: '2.0',
-            id: null,
-            error: { code: -32001, message: 'Unauthorized: valid access token required' },
-          }),
-          {
-            status: 401,
-            headers: {
-              'Content-Type': 'application/json',
-              'WWW-Authenticate': `Bearer resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`,
-            },
-          }
-        );
-      }
+    const authHeader = c.req.header('Authorization') || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+    const auth = token ? await validateToken(token) : null;
+    if (!auth) {
+      return new Response(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: null,
+          error: { code: -32001, message: 'Unauthorized: valid access token required' },
+        }),
+        {
+          status: 401,
+          headers: {
+            'Content-Type': 'application/json',
+            'WWW-Authenticate': `Bearer resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`,
+          },
+        }
+      );
     }
   }
 

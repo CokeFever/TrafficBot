@@ -76,12 +76,52 @@ export function authorizationServerMetadata(baseUrl: string): Record<string, unk
     issuer: baseUrl,
     authorization_endpoint: `${baseUrl}/authorize`,
     token_endpoint: `${baseUrl}/token`,
+    registration_endpoint: `${baseUrl}/register`,
     response_types_supported: ['code'],
     grant_types_supported: ['authorization_code', 'refresh_token'],
     code_challenge_methods_supported: ['S256'],
     token_endpoint_auth_methods_supported: ['none'],
     scopes_supported: ['parking', 'traffic'],
   };
+}
+
+// --- /register (Dynamic Client Registration, RFC 7591) --------------------
+// Gemini attempts DCR before falling back to manual credentials. Our
+// authorization is a public PKCE client bound via Telegram — we never verify
+// client credentials — so registration simply issues a client_id and echoes
+// back the client's metadata. This lets Gemini auto-register without the user
+// pasting a Client ID / Secret.
+
+export async function handleRegister(req: Request): Promise<Response> {
+  let body: Record<string, unknown> = {};
+  try {
+    body = await req.json();
+  } catch {
+    // RFC 7591 requires a JSON body; tolerate empty/invalid for robustness.
+  }
+
+  const clientId = `mcp-${randomToken(16)}`;
+  const redirectUris = Array.isArray(body.redirect_uris) ? body.redirect_uris : [];
+
+  const response = {
+    client_id: clientId,
+    // Public client (PKCE) — no secret issued.
+    token_endpoint_auth_method: 'none',
+    grant_types: ['authorization_code', 'refresh_token'],
+    response_types: ['code'],
+    redirect_uris: redirectUris,
+    client_name: typeof body.client_name === 'string' ? body.client_name : 'mcp-client',
+    // 0 = does not expire (RFC 7591).
+    client_id_issued_at: Math.floor(Date.now() / 1000),
+  };
+
+  return new Response(JSON.stringify(response), {
+    status: 201,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+    },
+  });
 }
 
 // --- /authorize -----------------------------------------------------------
