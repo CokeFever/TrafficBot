@@ -42,6 +42,31 @@ jobs:
           # without a Supabase JWT; auth is handled by the function's own OAuth 2.1 layer.
           supabase functions deploy mcp-server --no-verify-jwt
 
+      - name: Ensure Telegram webhook is registered
+        if: success()
+        env:
+          SUPABASE_PROJECT_ID: yqpigatgtxvytmkxumxu
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          echo "🔗 Verifying/repairing Telegram webhook after deploy..."
+          # The daily-report function's healthcheck mode uses the bot token
+          # stored in Supabase secrets to re-register the webhook if it has
+          # been dropped or points at the wrong URL. This guards against the
+          # 2026-10-16 incident where a cleared webhook silently killed the bot.
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            "https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/daily-report?mode=healthcheck" \
+            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
+            -H "Content-Type: application/json")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "Webhook healthcheck response: $BODY"
+          echo "HTTP Code: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "⚠️  Webhook healthcheck returned HTTP $HTTP_CODE (deploy still succeeded)."
+          fi
+
       - name: Deployment Summary
         if: success()
         run: |

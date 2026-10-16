@@ -2,12 +2,77 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 
 const ADMIN_CHAT_ID = '57881522';
 
+// The URL Telegram must point at for the bot to receive updates.
+function expectedWebhookUrl(supabaseUrl: string): string {
+  return `${supabaseUrl.replace(/\/$/, '')}/functions/v1/telegram-webhook`;
+}
+
+// Check the Telegram webhook registration and, if it is missing or pointing
+// at the wrong URL, re-register it automatically. Returns a short human
+// readable status line to embed in the daily report / health response.
+//
+// This is the self-healing guard for the failure we hit on 2026-10-16: a
+// cleared webhook (url: "") silently killed every bot command for weeks while
+// the daily report kept saying "正常運行中". Now the daily cron (and a
+// post-deploy ping) will detect and repair a dropped webhook within a day.
+async function checkAndRepairWebhook(botToken: string, supabaseUrl: string): Promise<string> {
+  const expected = expectedWebhookUrl(supabaseUrl);
+  try {
+    const infoResp = await fetch(`https://api.telegram.org/bot${botToken}/getWebhookInfo`);
+    const info = await infoResp.json();
+    const current: string = info?.result?.url ?? '';
+    const pending: number = info?.result?.pending_update_count ?? 0;
+    const lastError: string | undefined = info?.result?.last_error_message;
+
+    if (current === expected) {
+      let line = '🔗 Webhook：正常';
+      if (pending > 0) line += `（待處理 ${pending} 則）`;
+      if (lastError) line += `\n   ⚠️ Telegram 最近回報錯誤：${lastError}`;
+      return line;
+    }
+
+    // Webhook missing or wrong — repair it.
+    console.warn(`Webhook drift detected. current="${current}" expected="${expected}". Re-registering.`);
+    const setResp = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: expected,
+        allowed_updates: ['message', 'callback_query'],
+      }),
+    });
+    const setResult = await setResp.json();
+
+    if (setResult?.ok) {
+      const was = current === '' ? '（原本為空）' : `（原本指向 ${current}）`;
+      return `🔧 Webhook：偵測到遺失並已自動修復 ✅ ${was}`;
+    }
+    return `🔴 Webhook：偵測到異常但自動修復失敗，請手動重設。Telegram 回應：${JSON.stringify(setResult)}`;
+  } catch (error) {
+    console.error('Webhook health check failed:', error);
+    return `🔴 Webhook：健康檢查失敗（${String(error)}）`;
+  }
+}
+
 Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const botToken = Deno.env.get('TELEGRAM_BOT_TOKEN')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Lightweight mode: ?mode=healthcheck only verifies/repairs the Telegram
+    // webhook and returns, without generating the full daily report. The CI
+    // deploy workflow calls this right after a successful deploy so a dropped
+    // webhook is restored immediately instead of waiting for the next cron.
+    const mode = new URL(req.url).searchParams.get('mode');
+    if (mode === 'healthcheck') {
+      const webhookStatus = await checkAndRepairWebhook(botToken, supabaseUrl);
+      console.log('Healthcheck:', webhookStatus);
+      return new Response(JSON.stringify({ success: true, mode: 'healthcheck', webhookStatus }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
 
     // Calculate yesterday's date range (UTC+8)
     const now = new Date();
@@ -59,6 +124,11 @@ Deno.serve(async (req) => {
     const telegramUsers = new Set(yesterdayLogs?.filter((log: any) => !log.user_id.startsWith('line_')).map((log: any) => log.user_id) || []);
     const lineUsers = new Set(yesterdayLogs?.filter((log: any) => log.user_id.startsWith('line_')).map((log: any) => log.user_id) || []);
 
+    // Verify (and auto-repair) the Telegram webhook before reporting health,
+    // so the daily report reflects whether the bot can actually receive
+    // commands — not a hard-coded "正常運行中".
+    const webhookStatus = await checkAndRepairWebhook(botToken, supabaseUrl);
+
     // Build report message
     const report = `
 📊 泊車小弟 每日報表
@@ -83,7 +153,8 @@ Deno.serve(async (req) => {
 • 已設定 API Key：${totalUsers || 0} 人
 • 試用模式用戶：${totalTrialUsers || 0} 人
 
-🏥 系統狀態：正常運行中
+🏥 系統狀態：
+${webhookStatus}
 ━━━━━━━━━━━━━━━━
     `.trim();
 
