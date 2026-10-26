@@ -1037,18 +1037,22 @@ export class TdxApiClient {
         return { latitude: parseFloat(llMatch[1]), longitude: parseFloat(llMatch[2]) };
       }
       
-      // Pattern 5: center=lat,lon (supports comma or %2C)
-      const centerPattern = /[?&]center=(-?\d+\.\d+)(?:,|%2C)(-?\d+\.\d+)/;
-      const centerMatch = decoded.match(centerPattern) || url.match(centerPattern);
-      if (centerMatch) {
-        return { latitude: parseFloat(centerMatch[1]), longitude: parseFloat(centerMatch[2]) };
+      // Pattern 5: center=lat,lon (supports comma or %2C, only for URLs, not HTML)
+      if (!url.includes('<html') && !url.includes('<!DOCTYPE') && !url.includes('<meta')) {
+        const centerPattern = /[?&]center=(-?\d+\.\d+)(?:,|%2C)(-?\d+\.\d+)/;
+        const centerMatch = decoded.match(centerPattern) || url.match(centerPattern);
+        if (centerMatch) {
+          return { latitude: parseFloat(centerMatch[1]), longitude: parseFloat(centerMatch[2]) };
+        }
       }
 
-      // Pattern 5b: destination=lat,lon or query=lat,lon
-      const destPattern = /[?&](?:destination|query)=(-?\d+\.\d+)(?:,|%2C)(-?\d+\.\d+)/;
-      const destMatch = decoded.match(destPattern) || url.match(destPattern);
-      if (destMatch) {
-        return { latitude: parseFloat(destMatch[1]), longitude: parseFloat(destMatch[2]) };
+      // Pattern 5b: destination=lat,lon or query=lat,lon (only for URLs, not HTML)
+      if (!url.includes('<html') && !url.includes('<!DOCTYPE') && !url.includes('<meta')) {
+        const destPattern = /[?&](?:destination|query)=(-?\d+\.\d+)(?:,|%2C)(-?\d+\.\d+)/;
+        const destMatch = decoded.match(destPattern) || url.match(destPattern);
+        if (destMatch) {
+          return { latitude: parseFloat(destMatch[1]), longitude: parseFloat(destMatch[2]) };
+        }
       }
 
       // Pattern 6: [null,null,lat,lon] in Google Maps JS data (common in HTML source)
@@ -1140,6 +1144,16 @@ export class TdxApiClient {
               return finalResult;
             }
             
+            // Prioritize address geocoding from URL (e.g. /maps/place/ADDRESS) over HTML body scraping
+            const addressUrl = lastRedirectUrl || currentUrl;
+            if (/\/maps\/(?:place|search)\/|[?&]address=|[?&]q=/.test(addressUrl)) {
+              const geocodeResult = await this.geocodeFromMapsUrl(addressUrl);
+              if (geocodeResult) {
+                console.log('Parsed coordinates from geocoding address');
+                return geocodeResult;
+              }
+            }
+
             // Parse HTML body for coordinates
             const html = await response.text();
             console.log('HTML body length:', html.length);
