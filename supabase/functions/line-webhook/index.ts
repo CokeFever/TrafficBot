@@ -243,7 +243,13 @@ async function handleTextMessage(text: string, userId: string, supabase: any, se
 
   // Check user state for ongoing flows
   const state = await getUserState(userId, supabase);
-  if (!state) return;
+  if (!state) {
+    if (trimmed.length >= 2 && !['說明', '幫助', 'help'].includes(trimmed.toLowerCase())) {
+      await saveUserState(userId, { command: 'parking' }, supabase);
+      await handlePoiSearchFlow(trimmed, userId, supabase, sender);
+    }
+    return;
+  }
 
   if (state.command === 'setup') {
     await handleSetupFlow(trimmed, state, userId, supabase, sender);
@@ -379,10 +385,9 @@ async function handlePostback(data: string, userId: string, supabase: any, sende
 }
 
 async function handleMapsUrl(text: string, userId: string, supabase: any, sender: MessageSender) {
-  const state = await getUserState(userId, supabase);
+  let state = await getUserState(userId, supabase);
   if (!state || !state.command) {
-    await sender.sendText('請先選擇功能（輸入「停車」或「路況」）');
-    return;
+    state = { command: 'parking' };
   }
 
   const urlMatch = text.match(/(https?:\/\/[^\s]+)/);

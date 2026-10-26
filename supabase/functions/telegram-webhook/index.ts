@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { TdxApiClient, isMapsUrl } from '../_shared/tdx-client.ts';
 import { formatParkingResults, formatParkingPage, formatTrafficResults, formatError, formatRadiusText } from '../_shared/formatters.ts';
+import { searchPoi } from '../_shared/geocoding.ts';
 
 // Initialize bot commands on startup
 async function initializeBotCommands(botToken: string) {
@@ -338,11 +339,9 @@ async function handleLocation(
   supabase: any,
   botToken: string
 ) {
-  const state = await getUserState(userId, supabase);
-  
+  let state = await getUserState(userId, supabase);
   if (!state || !state.command) {
-    await sendMessage(chatId, '請先選擇功能（/parking 或 /traffic）', botToken);
-    return;
+    state = { command: 'parking' };
   }
 
   const { latitude, longitude } = location;
@@ -371,6 +370,19 @@ async function handleLocation(
     if (state.radius) {
       await handleTrafficQuery(latitude, longitude, state.radius, chatId, userId, supabase, botToken);
       await clearUserState(userId, supabase);
+    } else {
+      await saveUserState(userId, { ...state, latitude, longitude }, supabase);
+      await sendMessage(chatId, '請選擇搜尋範圍：', botToken, {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '250m', callback_data: 'traffic:radius:250' },
+              { text: '500m', callback_data: 'traffic:radius:500' },
+              { text: '1km', callback_data: 'traffic:radius:1000' },
+            ],
+          ],
+        },
+      });
     }
   }
 }
@@ -398,13 +410,18 @@ async function handleTextMessage(
     return;
   }
   
-  // Check if it's a Google Maps / Apple Maps URL (handle even without state)
+  // Check if it's a Google Maps / Apple Maps URL (handle even without prior state)
   if (isMapsUrl(text)) {
     await handleMapsUrl(text, chatId, userId, supabase, botToken);
     return;
   }
   
   if (!state || !state.command) {
+    // If user typed a text of at least 2 characters (not a command), default to POI search for parking
+    if (text.length >= 2 && !text.startsWith('/')) {
+      await saveUserState(userId, { command: 'parking' }, supabase);
+      await handlePoiSearch(text, chatId, userId, supabase, botToken);
+    }
     return;
   }
 
@@ -423,11 +440,9 @@ async function handleMapsUrl(
   supabase: any,
   botToken: string
 ) {
-  const state = await getUserState(userId, supabase);
-  
+  let state = await getUserState(userId, supabase);
   if (!state || !state.command) {
-    await sendMessage(chatId, '請先選擇功能（/parking 或 /traffic）', botToken);
-    return;
+    state = { command: 'parking' };
   }
 
   // Extract URL from text (user might paste URL with extra text or punctuation)
@@ -495,26 +510,15 @@ async function handlePoiSearch(
   await sendMessage(chatId, `🔍 搜尋「${query}」...`, botToken);
 
   try {
-    const nominatimUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&countrycodes=tw`;
-    const response = await fetch(nominatimUrl, {
-      headers: { 'User-Agent': 'TrafficBot/1.0' },
-    });
-
-    if (!response.ok) {
-      await sendMessage(chatId, '❌ 搜尋失敗，請稍後再試', botToken);
-      return;
-    }
-
-    const results = await response.json();
-    if (!results || results.length === 0) {
+    const place = await searchPoi(query);
+    if (!place) {
       await sendMessage(chatId, '❌ 找不到此地點，請嘗試其他關鍵字或直接分享位置', botToken);
       return;
     }
 
-    const place = results[0];
-    const lat = parseFloat(place.lat);
-    const lon = parseFloat(place.lon);
-    const displayName = place.display_name;
+    const lat = place.latitude;
+    const lon = place.longitude;
+    const displayName = place.displayName;
 
     console.log(`POI found: ${displayName} (${lat}, ${lon})`);
 

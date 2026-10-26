@@ -1,5 +1,7 @@
 // Location resolution for MCP tools.
-// Accepts either "lat,lon" coordinates or a place name (geocoded via Nominatim).
+// Accepts either "lat,lon" coordinates or a place name (geocoded via Google / Nominatim).
+
+import { searchPoi } from '../_shared/geocoding.ts';
 
 export interface ResolvedLocation {
   latitude: number;
@@ -26,25 +28,17 @@ export async function resolveLocation(location: string): Promise<ResolvedLocatio
     }
   }
 
-  // Case 2: place name → Nominatim geocoding (Taiwan only)
+  // Case 2: place name → Google Maps / Nominatim geocoding (Taiwan only)
   try {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
-      trimmed
-    )}&format=json&limit=1&countrycodes=tw&accept-language=zh-TW`;
-    const response = await fetch(url, {
-      headers: { 'User-Agent': 'TrafficBot-MCP/1.0' },
-    });
-    if (!response.ok) return null;
-
-    const results = await response.json();
-    if (!results || results.length === 0) return null;
-
-    const place = results[0];
-    return {
-      latitude: parseFloat(place.lat),
-      longitude: parseFloat(place.lon),
-      resolvedName: place.display_name || trimmed,
-    };
+    const poiResult = await searchPoi(trimmed);
+    if (poiResult) {
+      return {
+        latitude: poiResult.latitude,
+        longitude: poiResult.longitude,
+        resolvedName: poiResult.displayName || trimmed,
+      };
+    }
+    return null;
   } catch (error) {
     console.error('Geocoding error:', error);
     return null;

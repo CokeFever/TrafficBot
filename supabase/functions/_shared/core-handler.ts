@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
 import { TdxApiClient } from './tdx-client.ts';
 import { formatParkingResults, formatTrafficResults, formatError, formatRadiusText } from './formatters.ts';
+import { searchPoi } from './geocoding.ts';
 
 // Platform-agnostic message sender interface
 export interface MessageSender {
@@ -120,27 +121,7 @@ export async function handlePoiSearchCore(
   query: string,
   supabase: any
 ): Promise<{ latitude: number; longitude: number; displayName: string } | null> {
-  try {
-    const nominatimUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&countrycodes=tw`;
-    const response = await fetch(nominatimUrl, {
-      headers: { 'User-Agent': 'TrafficBot/1.0' },
-    });
-
-    if (!response.ok) return null;
-
-    const results = await response.json();
-    if (!results || results.length === 0) return null;
-
-    const place = results[0];
-    return {
-      latitude: parseFloat(place.lat),
-      longitude: parseFloat(place.lon),
-      displayName: place.display_name,
-    };
-  } catch (error) {
-    console.error('POI search error:', error);
-    return null;
-  }
+  return await searchPoi(query);
 }
 
 // Shared database helpers

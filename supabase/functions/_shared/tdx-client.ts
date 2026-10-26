@@ -1,6 +1,8 @@
 // TDX API Client for Deno runtime
 // Based on lessons learned from previous implementation
 
+import { extractGooglePreviewUrl, fetchGooglePreviewData, searchPoi } from './geocoding.ts';
+
 // Deno global type declaration for TypeScript
 declare const Deno: {
   env: {
@@ -1143,8 +1145,30 @@ export class TdxApiClient {
             if (finalResult) {
               return finalResult;
             }
+
+            // Parse HTML body for coordinates or Google preview endpoint
+            const html = await response.text();
+            console.log('HTML body length:', html.length);
+
+            // 1. Check Google Maps preview endpoint preload link (most reliable for Google Maps place redirects)
+            const previewUrl = extractGooglePreviewUrl(html);
+            if (previewUrl) {
+              console.log('Found Google preview URL, fetching details...');
+              const previewResult = await fetchGooglePreviewData(previewUrl);
+              if (previewResult) {
+                console.log('Parsed coordinates from Google preview endpoint:', previewResult.latitude, previewResult.longitude);
+                return { latitude: previewResult.latitude, longitude: previewResult.longitude };
+              }
+            }
             
-            // Prioritize address geocoding from URL (e.g. /maps/place/ADDRESS) over HTML body scraping
+            // 2. Direct coordinate pattern matching in HTML body
+            const htmlResult = this.parseGoogleMapsUrl(html);
+            if (htmlResult) {
+              console.log('Parsed coordinates from HTML body');
+              return htmlResult;
+            }
+
+            // 3. Fallback: geocode address from URL
             const addressUrl = lastRedirectUrl || currentUrl;
             if (/\/maps\/(?:place|search)\/|[?&]address=|[?&]q=/.test(addressUrl)) {
               const geocodeResult = await this.geocodeFromMapsUrl(addressUrl);
@@ -1152,16 +1176,6 @@ export class TdxApiClient {
                 console.log('Parsed coordinates from geocoding address');
                 return geocodeResult;
               }
-            }
-
-            // Parse HTML body for coordinates
-            const html = await response.text();
-            console.log('HTML body length:', html.length);
-            
-            const htmlResult = this.parseGoogleMapsUrl(html);
-            if (htmlResult) {
-              console.log('Parsed coordinates from HTML body');
-              return htmlResult;
             }
             break;
           }
@@ -1213,6 +1227,13 @@ export class TdxApiClient {
 
       // Remove leading postal code
       address = address.replace(/^\d{3,6}\s*/, '').trim();
+
+      // 1. Try searchPoi first (uses Google search + cloud-friendly preview endpoint)
+      const poiResult = await searchPoi(address);
+      if (poiResult) {
+        console.log('Geocoded coordinates from searchPoi:', poiResult.latitude, poiResult.longitude);
+        return { latitude: poiResult.latitude, longitude: poiResult.longitude };
+      }
 
       const headers = {
         'User-Agent': 'TrafficBot/1.0 (https://github.com/CokeFever/TrafficBot; contact:bot@ixo.app)',
