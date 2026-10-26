@@ -905,7 +905,7 @@ export class TdxApiClient {
 
     // Hsinchu County
     if (latitude >= 24.53 && latitude <= 24.85 && longitude >= 120.85 && longitude <= 121.35) {
-      return 'HssinchuCounty';
+      return 'HsinchuCounty';
     }
 
     // Miaoli County

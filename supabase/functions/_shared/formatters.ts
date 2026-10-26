@@ -283,7 +283,7 @@ export function formatError(error: Error): string {
   }
   
   if (error.message.includes('outside supported cities')) {
-    return '❌ 此位置不在支援的城市範圍內\n\n目前支援：台北、新北、桃園、台中、台南、高雄、新竹';
+    return '❌ 此位置不在支援的範圍內（目前支援全台 22 縣市）\n\n請確認座標是否在台灣境內，或直接於地圖點選台灣境內位置';
   }
   
   if (error.message.includes('trial limit exceeded')) {
