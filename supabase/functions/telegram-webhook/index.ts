@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
-import { TdxApiClient } from '../_shared/tdx-client.ts';
+import { TdxApiClient, isMapsUrl } from '../_shared/tdx-client.ts';
 import { formatParkingResults, formatParkingPage, formatTrafficResults, formatError, formatRadiusText } from '../_shared/formatters.ts';
 
 // Initialize bot commands on startup
@@ -398,8 +398,8 @@ async function handleTextMessage(
     return;
   }
   
-  // Check if it's a Google Maps URL (handle even without state)
-  if (text.includes('maps.app.goo.gl') || text.includes('google.com/maps') || text.includes('goo.gl/maps')) {
+  // Check if it's a Google Maps / Apple Maps URL (handle even without state)
+  if (isMapsUrl(text)) {
     await handleMapsUrl(text, chatId, userId, supabase, botToken);
     return;
   }
@@ -430,9 +430,10 @@ async function handleMapsUrl(
     return;
   }
 
-  // Extract URL from text (user might paste URL with extra text)
+  // Extract URL from text (user might paste URL with extra text or punctuation)
   const urlMatch = text.match(/(https?:\/\/[^\s]+)/);
-  const url = urlMatch ? urlMatch[1] : text.trim();
+  let url = urlMatch ? urlMatch[1] : text.trim();
+  url = url.replace(/[),.!?;:，。！？]+$/, '');
   
   console.log('Extracted URL:', url);
 
@@ -443,7 +444,7 @@ async function handleMapsUrl(
   if (!coords) {
     await sendMessage(
       chatId,
-      '❌ 無法解析 Google Maps 連結\n\n請提供包含座標的連結，或直接分享 Telegram 位置',
+      '❌ 無法解析地圖連結\n\n請提供包含座標或地址的連結，或直接分享 Telegram 位置',
       botToken
     );
     return;

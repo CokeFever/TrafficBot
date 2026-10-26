@@ -988,39 +988,67 @@ export class TdxApiClient {
 
   parseGoogleMapsUrl(url: string): { latitude: number; longitude: number } | null {
     try {
+      let decoded = url;
+      try {
+        decoded = decodeURIComponent(url);
+      } catch {
+        decoded = url;
+      }
+
       // Pattern 1: @latitude,longitude (most common)
       const coordPattern = /@(-?\d+\.\d+),(-?\d+\.\d+)/;
-      const match = url.match(coordPattern);
+      const match = decoded.match(coordPattern) || url.match(coordPattern);
       if (match) {
         return { latitude: parseFloat(match[1]), longitude: parseFloat(match[2]) };
       }
 
       // Pattern 2: !3d<lat>!4d<lon> (embedded in URL or HTML)
       const altPattern = /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/;
-      const altMatch = url.match(altPattern);
+      const altMatch = decoded.match(altPattern) || url.match(altPattern);
       if (altMatch) {
         return { latitude: parseFloat(altMatch[1]), longitude: parseFloat(altMatch[2]) };
       }
 
-      // Pattern 3: ?q=lat,lon or &q=lat,lon
-      const qPattern = /[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/;
-      const qMatch = url.match(qPattern);
+      // Pattern 2b: !2d<lon>!3d<lat> (alternative protobuf order in Google Maps)
+      const altPattern2 = /!2d(-?\d+\.\d+)!3d(-?\d+\.\d+)/;
+      const altMatch2 = decoded.match(altPattern2) || url.match(altPattern2);
+      if (altMatch2) {
+        const v1 = parseFloat(altMatch2[1]);
+        const v2 = parseFloat(altMatch2[2]);
+        // Lat: -90~90, Lng: -180~180 (In Taiwan, Lng is ~119~122, Lat is ~21~26)
+        if (Math.abs(v1) > 90 && Math.abs(v2) <= 90) {
+          return { latitude: v2, longitude: v1 };
+        } else if (Math.abs(v2) > 90 && Math.abs(v1) <= 90) {
+          return { latitude: v1, longitude: v2 };
+        }
+      }
+
+      // Pattern 3: ?q=lat,lon or &q=lat,lon or loc:lat,lon
+      const qPattern = /[?&]q=(?:loc:)?(-?\d+\.\d+),(-?\d+\.\d+)/;
+      const qMatch = decoded.match(qPattern) || url.match(qPattern);
       if (qMatch) {
         return { latitude: parseFloat(qMatch[1]), longitude: parseFloat(qMatch[2]) };
       }
 
-      // Pattern 4: ll=lat,lon
-      const llPattern = /[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/;
-      const llMatch = url.match(llPattern);
+      // Pattern 4: ll=lat,lon or sll=lat,lon (Google Maps & Apple Maps)
+      const llPattern = /[?&]s?ll=(-?\d+\.\d+),(-?\d+\.\d+)/;
+      const llMatch = decoded.match(llPattern) || url.match(llPattern);
       if (llMatch) {
         return { latitude: parseFloat(llMatch[1]), longitude: parseFloat(llMatch[2]) };
       }
       
-      // Pattern 5: center=lat,lon
-      const centerPattern = /[?&]center=(-?\d+\.\d+),(-?\d+\.\d+)/;
-      const centerMatch = url.match(centerPattern);
+      // Pattern 5: center=lat,lon (supports comma or %2C)
+      const centerPattern = /[?&]center=(-?\d+\.\d+)(?:,|%2C)(-?\d+\.\d+)/;
+      const centerMatch = decoded.match(centerPattern) || url.match(centerPattern);
       if (centerMatch) {
         return { latitude: parseFloat(centerMatch[1]), longitude: parseFloat(centerMatch[2]) };
+      }
+
+      // Pattern 5b: destination=lat,lon or query=lat,lon
+      const destPattern = /[?&](?:destination|query)=(-?\d+\.\d+)(?:,|%2C)(-?\d+\.\d+)/;
+      const destMatch = decoded.match(destPattern) || url.match(destPattern);
+      if (destMatch) {
+        return { latitude: parseFloat(destMatch[1]), longitude: parseFloat(destMatch[2]) };
       }
 
       // Pattern 6: [null,null,lat,lon] in Google Maps JS data (common in HTML source)
@@ -1053,19 +1081,26 @@ export class TdxApiClient {
 
   async parseGoogleMapsUrlWithRedirect(url: string): Promise<{ latitude: number; longitude: number } | null> {
     try {
-      // Remove query parameters from short links (e.g., ?g_st=ac)
-      const cleanUrl = url.split('?')[0];
+      // Clean trailing punctuation that might come from chat messages
+      let cleanUrl = url.trim().replace(/[),.!?;:，。！？]+$/, '');
       console.log('parseGoogleMapsUrlWithRedirect input:', url, '-> clean:', cleanUrl);
-      
-      // First try direct parsing
+
+      // 1. First try direct parsing on original URL (preserves ?q=, ?ll= etc.)
       const directResult = this.parseGoogleMapsUrl(cleanUrl);
       if (directResult) {
         return directResult;
       }
 
-      // If it's a short link, try to follow redirect
-      if (cleanUrl.includes('maps.app.goo.gl') || cleanUrl.includes('goo.gl/maps')) {
-        console.log('Detected short link, following redirect...');
+      // Check if it's a short link or redirectable URL
+      const isShortOrRedirect = /maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/maps|tinyurl\.com|bit\.ly|t\.co|maps\.apple\.com|google\.com\/maps/.test(cleanUrl);
+
+      if (isShortOrRedirect) {
+        console.log('Detected map/short link, following redirect...');
+
+        // Remove tracking query parameters only for short links (e.g., ?g_st=ac, ?si=...)
+        if (/maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/maps|bit\.ly|tinyurl\.com/.test(cleanUrl)) {
+          cleanUrl = cleanUrl.split('?')[0];
+        }
         
         // Use manual redirect to capture intermediate URLs
         let currentUrl = cleanUrl;
@@ -1074,20 +1109,27 @@ export class TdxApiClient {
           const response = await fetch(currentUrl, {
             method: 'GET',
             redirect: 'manual',
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
+            },
           });
           
           const location = response.headers.get('location');
           console.log(`Redirect step ${i}: status=${response.status}, location=${location?.substring(0, 200)}`);
           
           if (location) {
+            // Normalize relative redirect URL if needed
+            const nextUrl = location.startsWith('http') ? location : new URL(location, currentUrl).toString();
+
             // Try parsing the redirect location URL
-            const locationResult = this.parseGoogleMapsUrl(location);
+            const locationResult = this.parseGoogleMapsUrl(nextUrl);
             if (locationResult) {
               console.log('Parsed coordinates from redirect location');
               return locationResult;
             }
-            lastRedirectUrl = location;
-            currentUrl = location;
+            lastRedirectUrl = nextUrl;
+            currentUrl = nextUrl;
           } else {
             // No more redirects, try parsing the final URL and body
             const finalUrl = response.url || currentUrl;
@@ -1129,80 +1171,136 @@ export class TdxApiClient {
 
   private async geocodeFromMapsUrl(url: string): Promise<{ latitude: number; longitude: number } | null> {
     try {
-      // Extract address from Google Maps place URL
-      // Format: /maps/place/ENCODED_ADDRESS/data=...
+      // Extract address/query from Google Maps or Apple Maps place URL
+      let rawAddress = '';
+
       const placeMatch = url.match(/\/maps\/place\/([^/?]+)/);
-      if (!placeMatch) return null;
+      const searchMatch = url.match(/\/maps\/search\/([^/?]+)/);
+      const addressParamMatch = url.match(/[?&]address=([^&]+)/);
+      const qParamMatch = url.match(/[?&]q=([^&]+)/);
 
-      const encodedAddress = placeMatch[1];
-      const rawAddress = decodeURIComponent(encodedAddress);
-      console.log('Raw address from URL:', rawAddress);
+      if (placeMatch) {
+        rawAddress = placeMatch[1];
+      } else if (searchMatch) {
+        rawAddress = searchMatch[1];
+      } else if (addressParamMatch) {
+        rawAddress = addressParamMatch[1];
+      } else if (qParamMatch) {
+        const decodedQ = decodeURIComponent(qParamMatch[1]);
+        if (!/^-?\d+\.\d+,-?\d+\.\d+$/.test(decodedQ)) {
+          rawAddress = qParamMatch[1];
+        }
+      }
 
-      // Parse Taiwan address: [postal]City+District+Street+Number+StoreName
-      // Example: "700臺南市中西區忠明街23號四季恬鑫溫體牛肉鍋忠明店"
-      // Example: "114臺北市內湖區堤頂大道二段251號"
-      let address = rawAddress;
-      
+      if (!rawAddress) return null;
+
+      let address = decodeURIComponent(rawAddress).replace(/\+/g, ' ');
+      console.log('Raw address from URL:', address);
+
       // Remove leading postal code
-      address = address.replace(/^\d{3,6}/, '');
-      
-      // Parse structured address: city(市) + district(區) + street + number(號)
-      const twAddressMatch = address.match(/^(.+?[市縣])(.+?[區鄉鎮市])(.+?)(\d+號)/);
+      address = address.replace(/^\d{3,6}\s*/, '').trim();
+
+      const headers = {
+        'User-Agent': 'TrafficBot/1.0 (https://github.com/CokeFever/TrafficBot; contact:bot@ixo.app)',
+        'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
+      };
+
+      const queryNominatim = async (params: URLSearchParams) => {
+        try {
+          const nominatimUrl = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
+          const response = await fetch(nominatimUrl, { headers });
+          if (!response.ok) return null;
+          const results = await response.json();
+          if (results && results.length > 0) {
+            const lat = parseFloat(results[0].lat);
+            const lon = parseFloat(results[0].lon);
+            return { latitude: lat, longitude: lon };
+          }
+          return null;
+        } catch {
+          return null;
+        }
+      };
+
+      // Parse structured Taiwan address: city(市/縣) + district(區/鄉/鎮/市) + [optional 村/里] + street + number(號) + [optional POI]
+      const twAddressMatch = address.match(/^(.+?[市縣])(.+?[區鄉鎮市])(?:.+?[村里])?(.+?)(\d+)號(?:\s*(.*))?$/);
       
       if (twAddressMatch) {
         const city = twAddressMatch[1];
         const district = twAddressMatch[2];
-        const street = twAddressMatch[3];
-        const number = twAddressMatch[4].replace('號', '');
+        let street = twAddressMatch[3].replace(/^.+?[村里]/, '').trim();
+        const number = twAddressMatch[4];
+        const poi = (twAddressMatch[5] || '').trim();
         
-        console.log(`Parsed address: city=${city}, district=${district}, street=${street}, number=${number}`);
+        console.log(`Parsed address: city=${city}, district=${district}, street=${street}, number=${number}, poi=${poi}`);
         
-        // Use Nominatim structured query for precise geocoding
-        const params = new URLSearchParams({
+        // 1. Structured query with house number and clean street
+        const res1 = await queryNominatim(new URLSearchParams({
           street: `${number} ${street}`,
           city: city,
           county: district,
           format: 'json',
           limit: '1',
           countrycodes: 'tw',
-        });
-        
-        const nominatimUrl = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
-        const response = await fetch(nominatimUrl, {
-          headers: { 'User-Agent': 'TrafficBot/1.0' },
-        });
-
-        if (response.ok) {
-          const results = await response.json();
-          if (results && results.length > 0) {
-            const lat = parseFloat(results[0].lat);
-            const lon = parseFloat(results[0].lon);
-            console.log('Geocoded coordinates (structured):', lat, lon);
-            return { latitude: lat, longitude: lon };
-          }
+        }));
+        if (res1) {
+          console.log('Geocoded coordinates (structured):', res1.latitude, res1.longitude);
+          return res1;
         }
         
-        // Fallback: try with just city + street (without house number)
-        const fallbackParams = new URLSearchParams({
+        // 2. Structured query with street only
+        const res2 = await queryNominatim(new URLSearchParams({
+          street: street,
+          city: city,
+          county: district,
+          format: 'json',
+          limit: '1',
+          countrycodes: 'tw',
+        }));
+        if (res2) {
+          console.log('Geocoded coordinates (street):', res2.latitude, res2.longitude);
+          return res2;
+        }
+
+        // 3. Fallback q query with city + district + street
+        const res3 = await queryNominatim(new URLSearchParams({
           q: `${city}${district}${street}`,
           format: 'json',
           limit: '1',
           countrycodes: 'tw',
-        });
-        
-        const fallbackUrl = `https://nominatim.openstreetmap.org/search?${fallbackParams.toString()}`;
-        const fallbackResponse = await fetch(fallbackUrl, {
-          headers: { 'User-Agent': 'TrafficBot/1.0' },
-        });
+        }));
+        if (res3) {
+          console.log('Geocoded coordinates (city+district+street):', res3.latitude, res3.longitude);
+          return res3;
+        }
 
-        if (fallbackResponse.ok) {
-          const fallbackResults = await fallbackResponse.json();
-          if (fallbackResults && fallbackResults.length > 0) {
-            const lat = parseFloat(fallbackResults[0].lat);
-            const lon = parseFloat(fallbackResults[0].lon);
-            console.log('Geocoded coordinates (fallback):', lat, lon);
-            return { latitude: lat, longitude: lon };
+        // 4. Fallback with POI name if present
+        if (poi) {
+          const res4 = await queryNominatim(new URLSearchParams({
+            q: `${city} ${poi.split(' ')[0]}`,
+            format: 'json',
+            limit: '1',
+            countrycodes: 'tw',
+          }));
+          if (res4) {
+            console.log('Geocoded coordinates (poi):', res4.latitude, res4.longitude);
+            return res4;
           }
+        }
+      }
+
+      // Free-form fallback query
+      const cleanFallback = address.replace(/\s*[+,-].*$/, '').trim();
+      if (cleanFallback.length >= 3) {
+        const freeRes = await queryNominatim(new URLSearchParams({
+          q: cleanFallback,
+          format: 'json',
+          limit: '1',
+          countrycodes: 'tw',
+        }));
+        if (freeRes) {
+          console.log('Geocoded coordinates (free-form):', freeRes.latitude, freeRes.longitude);
+          return freeRes;
         }
       }
 
@@ -1463,4 +1561,11 @@ export class TdxApiClient {
     if (speed >= thresholds.slow) return 'slow';
     return 'congested';
   }
+}
+
+/**
+ * Check if text contains a supported map or navigation URL
+ */
+export function isMapsUrl(text: string): boolean {
+  return /maps\.app\.goo\.gl|google\.com\/maps|maps\.google\.com|goo\.gl\/maps|g\.co\/maps|maps\.apple\.com/.test(text);
 }

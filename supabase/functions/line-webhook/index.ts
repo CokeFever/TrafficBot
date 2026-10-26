@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
-import { TdxApiClient } from '../_shared/tdx-client.ts';
+import { TdxApiClient, isMapsUrl } from '../_shared/tdx-client.ts';
 import { formatParkingResults, formatParkingPage, formatTrafficResults, formatError, formatRadiusText } from '../_shared/formatters.ts';
 import {
   handleParkingQueryCore,
@@ -235,8 +235,8 @@ async function handleTextMessage(text: string, userId: string, supabase: any, se
     return;
   }
 
-  // Check if it's a Google Maps URL
-  if (trimmed.includes('maps.app.goo.gl') || trimmed.includes('google.com/maps') || trimmed.includes('goo.gl/maps')) {
+  // Check if it's a Maps URL
+  if (isMapsUrl(trimmed)) {
     await handleMapsUrl(trimmed, userId, supabase, sender);
     return;
   }
@@ -386,13 +386,14 @@ async function handleMapsUrl(text: string, userId: string, supabase: any, sender
   }
 
   const urlMatch = text.match(/(https?:\/\/[^\s]+)/);
-  const url = urlMatch ? urlMatch[1] : text.trim();
+  let url = urlMatch ? urlMatch[1] : text.trim();
+  url = url.replace(/[),.!?;:，。！？]+$/, '');
 
   const tempClient = new TdxApiClient('temp:temp');
   const coords = await tempClient.parseGoogleMapsUrlWithRedirect(url);
 
   if (!coords) {
-    await sender.sendText('❌ 無法解析 Google Maps 連結\n\n請直接分享位置或輸入地點名稱');
+    await sender.sendText('❌ 無法解析地圖連結\n\n請直接分享位置或輸入地點名稱');
     return;
   }
 
